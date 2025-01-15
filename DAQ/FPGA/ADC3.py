@@ -1,4 +1,4 @@
-#!/home/will/anaconda3/bin/python
+#!/home/anish/anaconda3/bin/python
 import socket
 import numpy as np
 from scipy.fft import fft, ifft
@@ -14,29 +14,42 @@ Nsamp=49.152
 ADC=['ADCA', 'ADCB', 'ADCC', 'ADCD']
 ADCatt=['0','0','0','0'] 
 curr = time.time()
-
+est = input("How long do you want each iteration to be?: ")
 ipad="10.17.16.10"
 packetsize=8256
 receive = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 receive.bind((ipad, 60000))
 
-
-with open("ADCout.dat", "wb") as output:
-    for i in range(0, t):
+count = 0
+try:
+    with open("ADCout.dat", "wb") as output:
+        start_time = time.time()
         
-        data, address = receive.recvfrom(packetsize)
-        sintval=np.frombuffer(data, dtype=np.int16)
-        for adccnt in np.arange(4):
-            adcdat=sintval[(32+adccnt)::4]
-        
-        adcdat=adcdat/nConamp
-        ft=fft(adcdat)/len(adcdat)
-        Ps=np.real(ft*np.conj(ft))
-        freq=np.arange(len(Ps))*Nsamp/len(Ps)
+        while time.time() - start_time < t:
+            curr1 = time.time()
+            output.write(np.array([curr1], dtype=np.float64).tobytes())
+            data, address = receive.recvfrom(packetsize)
+            sintval = np.frombuffer(data, dtype=np.int16)
+            for adccnt in range(4):
+                adcdat = sintval[(32 + adccnt)::4]
+                adcdat = adcdat / nConamp
+                ft = np.fft.fft(adcdat) / len(adcdat)
+                Ps = np.real(ft * np.conj(ft))
+                freq = np.arange(len(Ps)) * Nsamp / len(Ps)
+                output.write(Ps.tobytes())
 
-        output.write(Ps)
-        current = 1 - curr
-        time.sleep(current)
+            curr2 = time.time()
+            curr3 = curr2 - curr1  
+            
+            time.sleep(max(0,  est - curr3))
 
-output.close()
-receive.close()
+            print(f"Iteration: {count}, Time taken: {curr3:.4f}s")
+            count += 1
+
+except KeyboardInterrupt:
+    print("You Stopped The Program! ")
+
+finally:
+    output.close()
+    receive.close()
+    
