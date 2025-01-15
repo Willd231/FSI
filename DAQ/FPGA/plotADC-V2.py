@@ -6,30 +6,38 @@ import matplotlib.pyplot as plt
 # File path to the input binary data file
 file_path = "ADCout.dat"
 
-# Define the number of spectra and the length of each spectrum
-num_spectra = 4  # Four spectra in the file
-spectrum_length = 1024  # Replace with the actual length of each spectrum
+# ADC and configuration details
+adc_channels = ['ADCA', 'ADCB', 'ADCC', 'ADCD']
+num_channels = len(adc_channels)
+spectrum_length = 4096  # Based on the FFT computation in the generator program
+timestamp_size = 8  # Size of the timestamp (float64)
+data_block_size = spectrum_length * num_channels * 4  # Size of one iteration data (4 bytes per float32)
 
-# Load the data
+# Read the binary file
 with open(file_path, "rb") as file:
-    data = np.fromfile(file, dtype=np.float32)
+    data = file.read()
 
-# Ensure the data length matches the expected size
-assert len(data) == num_spectra * spectrum_length, "Data size mismatch."
+# Parse the data into timestamps and spectra
+data = np.frombuffer(data, dtype=np.float32)
+total_blocks = len(data) // (timestamp_size // 4 + spectrum_length * num_channels)
+timestamps = np.zeros(total_blocks, dtype=np.float64)
+spectra = np.zeros((total_blocks, num_channels, spectrum_length), dtype=np.float32)
 
-# Reshape data into a 2D array where each row is a spectrum
-data = data.reshape((num_spectra, spectrum_length))
+for i in range(total_blocks):
+    offset = i * (timestamp_size // 4 + spectrum_length * num_channels)
+    timestamps[i] = np.frombuffer(data[offset:offset + timestamp_size // 4], dtype=np.float64)
+    start = offset + timestamp_size // 4
+    spectra[i] = data[start:start + spectrum_length * num_channels].reshape((num_channels, spectrum_length))
 
-# Apply a 10 * log10 transformation (handling log of non-positive values)
-data_db = np.where(data > 0, 10 * np.log10(data), np.nan)
-
-# Plot each spectrum
+# Plot the data for each channel
 plt.figure(figsize=(12, 8))
-for i in range(num_spectra):
+for i in range(num_channels):
     plt.subplot(2, 2, i + 1)
-    plt.plot(data_db[i], label=f"Spectrum {i+1}")
-    plt.title(f"Spectrum {i+1}")
-    plt.xlabel("Channel")
+    spectrum_avg = np.mean(spectra[:, i, :], axis=0)  # Average spectrum over iterations
+    spectrum_db = 10 * np.log10(spectrum_avg)  # Convert to dB
+    plt.plot(spectrum_db, label=f"Channel {adc_channels[i]}")
+    plt.title(f"Spectrum for {adc_channels[i]}")
+    plt.xlabel("Frequency Bin")
     plt.ylabel("Power (dB)")
     plt.legend()
     plt.grid(True)
