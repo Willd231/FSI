@@ -1,4 +1,4 @@
-#!/home/will/anaconda3/bin/python
+#!/home/wdellinger/anaconda3/bin/python
 import socket
 import numpy as np
 from scipy.fft import fft, ifft
