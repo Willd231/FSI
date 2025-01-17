@@ -1,4 +1,4 @@
-#!/home/anish/anaconda3/bin/python
+#!/usr/bin/python3
 #
 # Program to read and plot the output of UDP data saved in ADCout.dat.
 #
@@ -9,11 +9,21 @@ import matplotlib.pyplot as plt
 import os
 import sys
 
+<<<<<<< HEAD
 # Constants
 nchan = 4096  # Number of FFT channels (adjust if needed)
 ninp = 4      # Number of ADC channels
 file_path = "ADCout.dat"  # Path to the output file
 packet_size = nchan * 4  # Size of one auto-correlation array per channel in bytes
+=======
+# ADC labels
+adc = ['ADC_A', 'ADC_B', 'ADC_C', 'ADC_D']
+
+# Global vars
+nchan = 4096  # Number of FFT channels
+ninp = 4      # Number of inputs (ADC channels)
+file_path = "ADCout.dat"
+>>>>>>> 999c755 (f)
 
 # Check if the file exists
 if not os.path.isfile(file_path):
