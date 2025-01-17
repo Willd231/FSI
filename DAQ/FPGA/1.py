@@ -1,60 +1,57 @@
-#!/usr/bin/python3
+#!/home/anish/anaconda3/bin/python
+#
+# Program to display autocorrelations from a single file (ADCout.dat).
+#
+# Will and Anish, Jan 2025
 
 import numpy as np
 import matplotlib.pyplot as plt
 import os
 import sys
 
-# File path
-file_path = "ADCout.dat"
+# ADC labels
+adc = ['ADC_A', 'ADC_B', 'ADC_C', 'ADC_D']
 
-# Global variables
-adc_channels = ['ADCA', 'ADCB', 'ADCC', 'ADCD']
-ninp = 4
-nchan = 4096
-timestamp_size = 8
+# Global vars
+nchan = 4096  # Number of FFT channels
+ninp = 4      # Number of inputs (ADC channels)
+file_path = "/home/anish/DarkMol/analysis/procdat/ADCout.dat"
 
 # Check if the file exists
-if not os.path.exists(file_path):
-    print(f"Error: File '{file_path}' not found.")
+if not os.path.isfile(file_path):
+    print(f"File not found: {file_path}")
     sys.exit(1)
 
+# Read the file size to determine the number of spectra
 file_size = os.stat(file_path).st_size
-nspec = file_size // (ninp * nchan * 4 + timestamp_size)
+nspec = file_size // (nchan * ninp * 4)  # 4 bytes per float32
+print(f"Processing file: {file_path}")
+print(f"Number of spectra: {nspec}")
 
-if nspec == 0:
-    print("Error: No spectra found in the file.")
-    sys.exit(1)
-
-print(f"There were {nspec} spectra recorded.")
-
-# Initialize Auto data array
+# Initialize auto-correlation data array
 Autospec = np.zeros((nspec, ninp, nchan // 2), dtype=np.single)
 
-# Read data from the binary file
-with open(file_path, "rb") as fp:
+# Read and process the file
+with open(file_path, "rb") as f:
     for speccnt in range(nspec):
-        # Skip the timestamp
-        fp.read(timestamp_size)
-        autospec = np.fromfile(fp, dtype=np.single, count=nchan * ninp)
+        autospec = np.fromfile(f, dtype=np.single, count=nchan * ninp)
         if autospec.size != nchan * ninp:
-            print(f"Incomplete data at spectrum {speccnt}. Skipping.")
             break
-        autospec = autospec.reshape((ninp, nchan))
-        Autospec[speccnt, :, :] = autospec[:, :nchan // 2]
+        autospec.shape = (ninp, nchan)
+        Autospec[speccnt, :, :] = autospec[:, 0:nchan // 2]
 
 # Plotting auto-correlation data
 fig1, ax1 = plt.subplots(ninp, 1, figsize=(10, 20), constrained_layout=True)
 for cnt in range(ninp):
     autospec = Autospec[:, cnt, :]
     ratio = autospec.shape[0] / autospec.shape[1]
-    cax = ax1[cnt].imshow(10 * np.log10(autospec.T + 1e-10), cmap='gray', aspect='auto')
+    cax = ax1[cnt].imshow(10 * np.log10(autospec.T), cmap='copper_r', aspect='auto')
     ax1[cnt].invert_yaxis()
     cbar = fig1.colorbar(cax, ax=ax1[cnt], fraction=0.047 * ratio)
     cbar.ax.set_ylabel('dB')
     ax1[cnt].set_xlabel('Spectrum count')
     ax1[cnt].set_ylabel('Channel')
-    ax1[cnt].set_title(f'{adc_channels[cnt]}')
+    ax1[cnt].set_title(f'{adc[cnt]}')
 
 # Interactive spectrum selection
 while True:
@@ -63,9 +60,21 @@ while True:
         plt.close()
         sys.exit(0)
 
-    spectra_num = int(np.round(pltval[0][0]))
-    if spectra_num < 0 or spectra_num >= nspec:
-        print(f"Invalid spectrum number: {spectra_num}")
+    spectraNum = int(np.round(pltval[0][0]))
+    if spectraNum >= nspec:
+        print(f"Selected spectrum {spectraNum} is out of range. Try again.")
         continue
 
-    print(f"Selected spectrum: {spectra_num}")
+    print(f"Selected spectrum: {spectraNum}")
+
+    # Plot the selected spectrum
+    fig2, axs = plt.subplots(ninp, 1, figsize=(10, 15), constrained_layout=True)
+    for i in range(ninp):
+        axs[i].cla()
+        axs[i].plot(10 * np.log10(Autospec[spectraNum, i, :]))
+        axs[i].set_title(f'Auto {adc[i]}')
+        axs[i].set_xlabel('Channel')
+        axs[i].set_ylabel('Amplitude (dB)')
+
+    fig2.canvas.draw()
+    plt.show(block=False)
