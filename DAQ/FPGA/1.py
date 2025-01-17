@@ -1,4 +1,4 @@
-#!/home/anish/anaconda3/bin/python
+#!/usr/bin/python3
 #
 # Program to display autocorrelations from a single file (ADCout.dat).
 #
@@ -15,7 +15,7 @@ adc = ['ADC_A', 'ADC_B', 'ADC_C', 'ADC_D']
 # Global vars
 nchan = 4096  # Number of FFT channels
 ninp = 4      # Number of inputs (ADC channels)
-file_path = "/home/anish/DarkMol/analysis/procdat/ADCout.dat"
+file_path = "ADCout.dat"
 
 # Check if the file exists
 if not os.path.isfile(file_path):
