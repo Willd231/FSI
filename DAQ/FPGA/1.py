@@ -1,6 +1,6 @@
 #!/home/anish/anaconda3/bin/python
 #
-# Program to display autocorrelations from a single file (ADCout.dat).
+# Program to read and plot the output of UDP data saved in ADCout.dat.
 #
 # Will and Anish, Jan 2025
 
@@ -9,36 +9,37 @@ import matplotlib.pyplot as plt
 import os
 import sys
 
-# ADC labels
-adc = ['ADC_A', 'ADC_B', 'ADC_C', 'ADC_D']
-
-# Global vars
-nchan = 4096  # Number of FFT channels
-ninp = 4      # Number of inputs (ADC channels)
-file_path = "/home/anish/DarkMol/analysis/procdat/ADCout.dat"
+# Constants
+nchan = 4096  # Number of FFT channels (adjust if needed)
+ninp = 4      # Number of ADC channels
+file_path = "ADCout.dat"  # Path to the output file
+packet_size = nchan * 4  # Size of one auto-correlation array per channel in bytes
 
 # Check if the file exists
 if not os.path.isfile(file_path):
     print(f"File not found: {file_path}")
     sys.exit(1)
 
-# Read the file size to determine the number of spectra
+# Determine the number of spectra in the file
 file_size = os.stat(file_path).st_size
-nspec = file_size // (nchan * ninp * 4)  # 4 bytes per float32
+record_size = 8 + (ninp * packet_size)  # Timestamp (8 bytes) + 4 channels of data
+nspec = file_size // record_size
 print(f"Processing file: {file_path}")
 print(f"Number of spectra: {nspec}")
 
-# Initialize auto-correlation data array
-Autospec = np.zeros((nspec, ninp, nchan // 2), dtype=np.single)
+# Initialize arrays for storing data
+timestamps = np.zeros(nspec, dtype=np.float64)
+Autospec = np.zeros((nspec, ninp, nchan), dtype=np.single)
 
-# Read and process the file
+# Read the data file
 with open(file_path, "rb") as f:
     for speccnt in range(nspec):
-        autospec = np.fromfile(f, dtype=np.single, count=nchan * ninp)
-        if autospec.size != nchan * ninp:
-            break
-        autospec.shape = (ninp, nchan)
-        Autospec[speccnt, :, :] = autospec[:, 0:nchan // 2]
+        # Read timestamp
+        timestamps[speccnt] = np.fromfile(f, dtype=np.float64, count=1)
+
+        # Read auto-correlation data for each channel
+        for ch in range(ninp):
+            Autospec[speccnt, ch, :] = np.fromfile(f, dtype=np.single, count=nchan)
 
 # Plotting auto-correlation data
 fig1, ax1 = plt.subplots(ninp, 1, figsize=(10, 20), constrained_layout=True)
@@ -51,7 +52,7 @@ for cnt in range(ninp):
     cbar.ax.set_ylabel('dB')
     ax1[cnt].set_xlabel('Spectrum count')
     ax1[cnt].set_ylabel('Channel')
-    ax1[cnt].set_title(f'{adc[cnt]}')
+    ax1[cnt].set_title(f'Auto-correlation: ADC_{chr(65 + cnt)}')
 
 # Interactive spectrum selection
 while True:
@@ -72,7 +73,7 @@ while True:
     for i in range(ninp):
         axs[i].cla()
         axs[i].plot(10 * np.log10(Autospec[spectraNum, i, :]))
-        axs[i].set_title(f'Auto {adc[i]}')
+        axs[i].set_title(f'Auto-correlation: ADC_{chr(65 + i)}')
         axs[i].set_xlabel('Channel')
         axs[i].set_ylabel('Amplitude (dB)')
 
