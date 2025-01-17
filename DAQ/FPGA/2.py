@@ -1,4 +1,4 @@
-#!/home/anish/anaconda3/bin/python
+#!/usr/bin/python3
 #
 # Program to read and plot the output of UDP data saved in ADCout.dat.
 #
