@@ -1,22 +1,22 @@
 #!/usr/bin/python3
 
+
 import numpy as np
 import matplotlib.pyplot as plt
 import os
 import sys
 
 file_path = "ADCout.dat"
-
+figure_closed = False
 adc_channels = ['ADCA', 'ADCB', 'ADCC', 'ADCD']
 ninp = 4
 nchan = 4096
-timestamp_size = 8
+timestamp_size = 4
 
-# Calculate sizes for data parsing
 data_block_size = nchan * ninp * 4
 nbaselines = (ninp * (ninp - 1)) // 2
 
-# Check if the file exists
+
 if not os.path.exists(file_path):
     print(f"Error: File '{file_path}' not found.")
     sys.exit(1)
@@ -30,14 +30,13 @@ if nspec == 0:
 
 print(f"There were {nspec} Spectra recorded.")
 
-# Initialize Autospec
+
 Autospec = np.zeros((nspec, ninp, nchan // 2), dtype=np.single)
 
-# Read data
+
 with open(file_path, "rb") as fp:
     for speccnt in range(nspec):
         try:
-            # Skip the timestamp (8 bytes)
             timestamp = fp.read(timestamp_size)
             if len(timestamp) != timestamp_size:
                 print(f"Incomplete timestamp at spectrum {speccnt}. Skipping.")
@@ -54,14 +53,16 @@ with open(file_path, "rb") as fp:
             print(f"Error at spectrum {speccnt}: {e}")
             break
 
-# Plotting
+Autospec[Autospec <= 0] = 1e-10
 fig1, ax1 = plt.subplots(ninp, 1, figsize=(10, 20), constrained_layout=True)
+fig2, axs = plt.subplots(ninp, 1, figsize=(10, 15), constrained_layout=True)
 for cnt in range(ninp):
+    
     autospec = Autospec[:, cnt, :]
     ratio = autospec.shape[0] / autospec.shape[1]
     
-    # Avoid log of zero
-    autospec[autospec <= 0] = 1e-10
+    
+    #autospec[autospec <= 0] = 1e-10
 
     cax = ax1[cnt].imshow(10 * np.log10(autospec.T), cmap='copper_r', aspect='auto')
     ax1[cnt].invert_yaxis()
@@ -70,24 +71,39 @@ for cnt in range(ninp):
     ax1[cnt].set_xlabel('Time')
     ax1[cnt].set_ylabel('Channel')
     ax1[cnt].set_title(f'{adc_channels[cnt]}')
+def on_close(event):
+    global figure_closed
+    figure_closed = True  
+    print(f"Figure {event.canvas.figure.number} closed!")
+    
+    
 
-# Interactive spectrum selection
-while True:
-    try:
-        pltval = fig1.ginput(1, timeout=0, show_clicks=True)
-        if not pltval:
-            plt.close()
-            sys.exit(0)
 
-        spectra_num = int(np.round(pltval[0][0]))
-        if spectra_num < 0 or spectra_num >= nspec:
-            print(f"Invalid spectrum number: {spectra_num}")
-            continue
 
-        print(f"Selected spectrum: {spectra_num}")
-        print(pltval)
-    except Exception as e:
-        print(f"Error during user input: {e}")
-        break
+def plot_selected_spectrum(spectra_num):
+    
+    for i in range(ninp):
+        axs[i].clear()
+        axs[i].plot(10 * np.log10(Autospec[spectra_num, i, :]))
+        axs[i].set_title(f'{adc_channels[i]} - Spectrum {spectra_num}')
+        axs[i].set_xlabel('Channel')
+        axs[i].set_ylabel('Amplitude (dB)')
+    plt.show(block=False)
 
-plt.show()
+def plot():
+    while 1 == 1:
+            pltval = fig1.ginput(1, timeout=0, show_clicks=True)
+            
+
+            spectra_num = int((pltval[0][0]))
+            if spectra_num < 0 or spectra_num >= nspec:
+                print(f"Invalid spectrum number: {spectra_num}")
+                continue
+
+            print(f"Selected spectrum: {spectra_num}")
+            plot_selected_spectrum(spectra_num)
+            
+            return plot()
+
+while 1 ==1:
+        plot()
