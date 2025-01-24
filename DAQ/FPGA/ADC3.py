@@ -1,4 +1,4 @@
-#!/home/anish/anaconda3/bin/python
+#!/usr/bin/python3
 import socket
 import numpy as np
 from scipy.fft import fft, ifft
@@ -27,7 +27,7 @@ try:
         
         while time.time() - start_time < t:
             curr1 = time.time()
-            output.write(np.array([curr1], dtype=np.float64).tobytes())
+            output.write(np.array([curr1], dtype=np.float32).tobytes())
             data, address = receive.recvfrom(packetsize)
             sintval = np.frombuffer(data, dtype=np.int16)
             for adccnt in range(4):
@@ -35,8 +35,11 @@ try:
                 adcdat = adcdat / nConamp
                 ft = np.fft.fft(adcdat) / len(adcdat)
                 Ps = np.real(ft * np.conj(ft))
+                Ps[Ps <= 0] = 1e-10
+                
+
                 freq = np.arange(len(Ps)) * Nsamp / len(Ps)
-                output.write(Ps.tobytes())
+                output.write(Ps.astype(np.float32).tobytes())
 
             curr2 = time.time()
             curr3 = curr2 - curr1  
