@@ -36,8 +36,8 @@ try:
                 ft = np.fft.fft(adcdat) / len(adcdat)
                 Ps = np.real(ft * np.conj(ft))
                 Ps[Ps <= 0] = 1e-10
-                
-
+                fig = mpl.plt(Ps)
+                plt.show()
                 freq = np.arange(len(Ps)) * Nsamp / len(Ps)
                 output.write(Ps.astype(np.float32).tobytes())
 
