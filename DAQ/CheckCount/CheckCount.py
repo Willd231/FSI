@@ -3,6 +3,96 @@
 #Version 1
 #Program developed to check counter values sent by FPGA.
 #
+#Developed by Will Delinger based on suggestions from Anish.
+#April 29, 2024
+
+
+import numpy as np
+import os
+import glob
+import sys
+
+packetsize=8256
+
+Datdir = '/mnt/carsedat/'
+
+#Input to specify the directory
+filetype = input('Enter the filename for the first file in the sequence : ')
+
+file_path=Datdir+filetype
+if os.path.exists(file_path):
+   with open(file_path, "rb") as file:
+     b = np.frombuffer(file.read(8), dtype=np.uint64).copy()
+     print(b)
+else:
+   print(Datdir+filetype, " file does not exist!!")
+   sys.exit(1)
+
+# Path to the directory containing files
+path = Datdir + filetype[:-8] +'*.dat'
+
+# Get a list of files in the directory
+files = sorted(glob.glob(path), key=os.path.getmtime)
+
+for file_path in files:
+  print(file_path)
+
+# Iterate through each file
+for file_path in files:
+
+        print(file_path)
+"CheckCount.py" 77 lines, 1964 bytes
+
+#!/home/anish/anaconda3/bin/python3
+
+#Version 1
+#Program developed to check counter values sent by FPGA.
+#
+#Developed by Will Delinger based on suggestions from Anish.
+#April 29, 2024
+
+
+import numpy as np
+import os
+import glob
+import sys
+
+packetsize=8256
+
+Datdir = '/mnt/carsedat/'
+
+#Input to specify the directory
+filetype = input('Enter the filename for the first file in the sequence : ')
+
+file_path=Datdir+filetype
+if os.path.exists(file_path):
+   with open(file_path, "rb") as file:
+     b = np.frombuffer(file.read(8), dtype=np.uint64).copy()
+     print(b)
+else:
+   print(Datdir+filetype, " file does not exist!!")
+   sys.exit(1)
+
+# Path to the directory containing files
+path = Datdir + filetype[:-8] +'*.dat'
+
+# Get a list of files in the directory
+files = sorted(glob.glob(path), key=os.path.getmtime)
+
+for file_path in files:
+  print(file_path)
+
+# Iterate through each file
+for file_path in files:
+
+        print(file_path)
+"CheckCount.py" 77 lines, 1964 bytes
+
+#!/home/anish/anaconda3/bin/python3
+
+#Version 1
+#Program developed to check counter values sent by FPGA.
+#
 #Developed by Will Delinger based on suggestions from Anish. 
 #April 29, 2024
 
