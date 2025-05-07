@@ -330,7 +330,7 @@ int readData(datareader_t *reader,int nchan,int ninp,FILE *fpin,fftwf_complex **
 
     int inp,chan,nread,ind;
 //    unsigned short *sample; Anish
-    __int16 *sample;
+    __int16_t *sample;
 
     if (!reader->init) {
         int decoder_buf_size=(1<<(2*BITS_PER_NUM)),im,re,index=0,rval,ival;
@@ -368,7 +368,7 @@ int readData(datareader_t *reader,int nchan,int ninp,FILE *fpin,fftwf_complex **
     for(inp=0; inp<ninp; inp++) {
         for(chan=0; chan<nchan; chan++) {
 //            sample = ((unsigned short *)reader->buffer)+(ninp*chan + inp); Anish
-            sample = ((__int16 *)reader->buffer)+(ninp*chan + inp);
+            sample = ((__int16_t *)reader->buffer)+(ninp*chan + inp);
 //            ind = (*sample) & DECODER_MASK; Anish
 //            inp_buf[inp][chan] = reader->decoder[ind]; Anish
             inp_buf[inp][chan] = (*sample)/16 + I*0;
