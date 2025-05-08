@@ -1,3 +1,79 @@
+/******************************************************
+This is a simple software correlator for complex input data. The input is a stream of data samples (2 bytes)
+with one group of bytes for each input per time sample. I.e. for 4 inputs, at time t,
+the input would be:
+i0i1i2i3 for time t0, then i0i1i2i3 for time t1 etc.
+The output is a file of binary float data, real or complex, with adjacent values being the
+spectral channels of the correlation products. I.e for channel c, product p the output would be
+c0c1...cnchan-1 for p then
+c0c1...cnchan-1 for p+1 etc.
+
+Author: Randall Wayth, Feb 2008.
+
+Requires:
+- fftw3, including single precision libraries
+
+to compile:
+gcc -Wall -O3 -D_FILE_OFFSET_BITS=64 -o corr_cpu corr_cpu.c -lfftw3f -lm
+
+O3 optimisation gives the fastest code, but is impossible to debug with gdb since 
+the compiler inlines everything.
+Switch to -O -g optimisation or no optimisation for debugging.
+
+Use:
+start the program with no arguments for a summary of command line options.
+Command-line options control the number of inputs, number of freq channels,
+type of correlation product to write (auto, cross or both),
+the number of averages before writing output and the input and output file names.
+(stdin,stdout can also be used in some cases)
+Debugging/timing output can also be generated with the command line option '-d'.
+
+The code reads blocks of ninp*nchan complex samples and re-shuffles them into ninp arrays of nchan complex floats.
+(for nchan spectral channels, not including the total power term, one needs nchan complex values to FFT.)
+Each input array is then FFT'd into a complex spectrum. Correlation products (auto and/or cross)
+are then generated for each of these spectra and accumulated.
+
+After the specified number of spectra have been added into
+the accumulations (the number of averages), they are written to output after being
+averaged and normalised for the FFT. In this way, one or more averages can be written per output file.
+If the end of the input is reached and nothing has yet been written, one average is written regardless
+of the command-line '-a' argument. If one or more averages have already been written and the end of
+the input has been reached, then partially accumulated data is discarded.
+
+By default, two output files are created with the suffixes ".LACSPC" and ".LCCSPC" for the
+auto and cross correlation products respectively. If only one type of correlation product is generated,
+then stdout can be used.
+The output format of autocorrelation is binary single precision floats,
+one spectrum for each correlation product, per average.
+The output is ordered by channel, then product, then average. I.e. for 4 output products with 512 channels,
+the data will be channel1, channel2... channel512 all for product 1, then the same for
+channel 2 etc. Then the whole thing is repeated again if there are more than 1 averages.
+The output format of cross correlation is binary single precision complexes,
+one spectrum for each correlation product, per average. Same idea with data ordering.
+
+It is advisable to use input files that are an integer multiple of ninp*nchan samples long, otherwise there
+will be unused data at the end of the file. If more than one average put input file is desired,
+it is also advisable to use files that are ninp*nchan*naver samples long so that all data is used in an output average.
+
+How many averages do I need to average for t seconds?
+- for Nyquist sampled byte data with bandwidth B Hz, there are B*n_inputs samples per second.
+- for n_channels output, we consume n_chan*n_input samples per input batch.
+- therefore B/nchan (batches/sec) gives the number of averages required for 1 second of data.
+
+Input data size:
+this code was written for MWA 8T/32T data with 2 byte complex input samples. The input is 5real+5imag
+bits in the lowest bits of the 16-bit word. The 5-bit numbers are two's complement integers.
+
+******************************************************/
+
+/*
+
+Modified to process PAF data
+
+Anish Nov 06, 2010
+
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
