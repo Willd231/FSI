@@ -19,6 +19,36 @@ typedef struct packet{
 
 
 
+bool openFiles(string inputFileName, string outputFileName, string outputFileName2, ifstream &inputFile, ifstream &outputFile, ifstream &outputFile2){
+
+    // opens input & output files. if any of the files are opened unsuccessfully this function returns false
+
+    inputFile.open(inputFileName);
+
+    if(!inputFile){
+        cerr << "Error opening input file\n";
+        return false;
+    }
+
+    outputFile.open(outputFileName);
+
+    if(!outputFile){
+        cerr << "Error opening output file 1\n";
+        return false;
+    }
+
+    outputFile.open(outputFileName2);
+
+    if(!outputFile2){
+        cerr << "Error opening outputfile 2\n";
+        return false;
+    }
+
+    // returns true if all files open successfully
+    return true;
+
+}
+
 vector<packet> readFile(char * filename)
 {
     
@@ -83,6 +113,8 @@ vector<packet> readFile(char * filename)
             }
         }
 
+        file.seekg(64, std::ios::beg);
+
 
     }
 
@@ -134,6 +166,9 @@ std::vector<cufftComplex> run_fft(vector<packet> data, int size) {
 void writeOut(char * filename, int16_t ** data ){
     
 
+    
+
+
 }
 
 
@@ -144,10 +179,10 @@ int main (int argc, char * argv[]){
     // compile: nvcc testfft2.cu -lcufft -o testfft2
     //test directory: /mnt/carsedat/20250220_181537_0000.dat
     // run: ./testfft2 /mnt/carsedat/20250220_181537_0000.dat
-
+    
     vector<packet> data = readFile(argv[1]);
     cout << "Data read in\n";
-
+    
 }
 
 
