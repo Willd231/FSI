@@ -43,8 +43,6 @@ int    readData(datareader_t *r, int nchan, int ninp,
                 FILE *fpin, cufftComplex **inp_buf);
 void   do_FFT_fftw(cufftplan *plan, int nchan, int ninp,
                    cufftComplex **inp_buf, cufftComplex **ft_buf);
-void   do_CMAC(int nchan, int ninp, int prod_type,
-               cufftComplex **ft_buf, cufftComplex **corr_buf);
 void   writeOutput(FILE *fout_ac, FILE *fout_cc, int ninp,
                    int nchan, int naver, int prod_type,
                    cufftComplex **buf, float normaliser);
@@ -54,8 +52,8 @@ int main(int argc, char *const argv[]) {
     int             ncorr = ninp*(ninp+1)/2;
     FILE           *finp = NULL, *fout_ac = NULL, *fout_cc = NULL;
     float           normaliser = 1.0f;
-    float           read_time = 0, fft_time = 0, cmac_time = 0, write_time = 0;
-    cufftComplex  **inp_buf = NULL, **ft_buf = NULL, **corr_buf = NULL;
+    float           read_time = 0, fft_time = 0, write_time = 0;
+    cufftComplex  **inp_buf = NULL, **ft_buf = NULL;
     struct timeval  tv;
     cufftplan       fftplan[MAX_THREADS];
     datareader_t    reader[MAX_THREADS];
@@ -98,17 +96,6 @@ int main(int argc, char *const argv[]) {
         }
     }
 
-    /* allocate correlation buffers */
-    corr_buf = (cufftComplex**)calloc(ncorr, sizeof(cufftComplex*));
-    if (!corr_buf) { perror("calloc corr_buf"); exit(1); }
-    for (int i = 0; i < ncorr; i++) {
-        if (cudaMallocManaged((void**)&corr_buf[i], nchan * sizeof(cufftComplex)) != cudaSuccess) {
-            fprintf(stderr, "cudaMallocManaged failed for corr_buf[%d]\n", i);
-            exit(1);
-        }
-        cudaMemset(corr_buf[i], 0, nchan * sizeof(cufftComplex));
-    }
-
     /* skip initial spectra if requested */
     for (int i = 0; i < nskip; i++) {
         readData(&reader[0], nchan, ninp, finp, inp_buf);
@@ -126,11 +113,6 @@ int main(int argc, char *const argv[]) {
             gettimeofday(&tv, NULL);
             do_FFT_fftw(&fftplan[0], nchan, ninp, inp_buf, ft_buf);
             fft_time += elapsed_time(&tv);
-
-            if (debug) fprintf(stderr, "[debug] about to do CMAC\n");
-            gettimeofday(&tv, NULL);
-            do_CMAC(nchan, ninp, prod_type, ft_buf, corr_buf);
-            cmac_time += elapsed_time(&tv);
         }
 
         if ((filedone && !nav_written) || ++iter == naver) {
@@ -138,7 +120,7 @@ int main(int argc, char *const argv[]) {
             gettimeofday(&tv, NULL);
             normaliser = 1.0f / (nchan * iter);
             writeOutput(fout_ac, fout_cc, ninp, nchan, iter,
-                        prod_type, corr_buf, normaliser);
+                        prod_type, /*buf=*/NULL, normaliser);
             nav_written++;
             iter = 0;
             write_time += elapsed_time(&tv);
@@ -147,10 +129,8 @@ int main(int argc, char *const argv[]) {
 
     if (debug) {
         fprintf(stderr,
-                "[debug] wrote %d averages, unused chunks %d\n"
-                "        times(ms): read=%.3f fft=%.3f cmac=%.3f write=%.3f\n",
-                nav_written, iter,
-                read_time, fft_time, cmac_time, write_time);
+                "[debug] read=%.3fms  fft=%.3fms  write=%.3fms\n",
+                read_time, fft_time, write_time);
     }
 
     /* cleanup */
@@ -167,17 +147,13 @@ int main(int argc, char *const argv[]) {
 
     for (int t = 0; t < MAX_THREADS; t++) {
         if (fftplan[t].doneplan) {
+            cufftHandle *plans = (cufftHandle*)fftplan[t].plans;
             for (int j = 0; j < ninp; j++) {
-                cufftDestroy(fftplan[t].plans[j]);
+                cufftDestroy(plans[j]);
             }
-            free((cufftHandle*)fftplan[t].plans);
+            free(plans);
         }
     }
-
-    for (int i = 0; i < ncorr; i++) {
-        cudaFree(corr_buf[i]);
-    }
-    free(corr_buf);
 
     for (int t = 0; t < MAX_THREADS; t++) {
         if (reader[t].buffer) free((unsigned char*)reader[t].buffer);
@@ -206,14 +182,14 @@ void parse_cmdline(int argc, char *const argv[], const char *optstring) {
     int c;
     while ((c = getopt(argc, argv, optstring)) != -1) {
         switch (c) {
-        case 'c': nchan        = atoi(optarg);       break;
-        case 'n': ninp         = atoi(optarg);       break;
-        case 'a': naver        = atoi(optarg);       break;
-        case 'p': prod_type    = toupper(optarg[0]); break;
-        case 'i': infilename   = optarg;             break;
-        case 'o': outfilename  = optarg;             break;
-        case 's': nskip        = atoi(optarg);       break;
-        case 'd': debug        = 1;                  break;
+        case 'c': nchan       = atoi(optarg);       break;
+        case 'n': ninp        = atoi(optarg);       break;
+        case 'a': naver       = atoi(optarg);       break;
+        case 'p': prod_type   = toupper(optarg[0]); break;
+        case 'i': infilename  = optarg;             break;
+        case 'o': outfilename = optarg;             break;
+        case 's': nskip       = atoi(optarg);       break;
+        case 'd': debug       = 1;                  break;
         default:  print_usage(argv);
         }
     }
@@ -300,51 +276,9 @@ void do_FFT_fftw(cufftplan *plan, int nchan, int ninp,
     }
 }
 
-void do_CMAC(int nchan, int ninp, int prod_type,
-             cufftComplex **ft_buf, cufftComplex **corr_buf) {
-    int cprod = 0;
-    for (int i1 = 0; i1 < ninp; i1++) {
-        for (int i2 = i1; i2 < ninp; i2++, cprod++) {
-            int do_prod = (prod_type=='B')
-                        || (prod_type=='C' && i1!=i2)
-                        || (prod_type=='A' && i1==i2);
-            if (!do_prod) continue;
-            cufftComplex *a = ft_buf[i1];
-            cufftComplex *b = ft_buf[i2];
-            cufftComplex *c = corr_buf[cprod];
-            for (int ch = 0; ch < nchan; ch++) {
-                c[ch].x += a[ch].x*b[ch].x + a[ch].y*b[ch].y;
-                c[ch].y += a[ch].y*b[ch].x - a[ch].x*b[ch].y;
-            }
-        }
-    }
-}
-
 void writeOutput(FILE *fout_ac, FILE *fout_cc, int ninp,
                  int nchan, int naver, int prod_type,
                  cufftComplex **buf, float normaliser) {
-    float *tmp = (float*)malloc(nchan * sizeof(float));
-    if (!tmp) { perror("malloc tmp"); exit(1); }
-
-    int cprod = 0;
-    for (int i1 = 0; i1 < ninp; i1++) {
-        for (int i2 = i1; i2 < ninp; i2++, cprod++) {
-            cufftComplex *c = buf[cprod];
-            for (int ch = 0; ch < nchan; ch++) {
-                c[ch].x *= normaliser;
-                c[ch].y *= normaliser;
-                if (i1==i2 && (prod_type=='A' || prod_type=='B')) {
-                    tmp[ch] = c[ch].x;
-                }
-            }
-            if (i1==i2 && (prod_type=='A' || prod_type=='B')) {
-                fwrite(tmp, sizeof(float), nchan, fout_ac);
-            }
-            if (i1!=i2 && (prod_type=='C' || prod_type=='B')) {
-                fwrite(c, sizeof(cufftComplex), nchan, fout_cc);
-            }
-            memset(c, 0, nchan * sizeof(cufftComplex));
-        }
-    }
-    free(tmp);
+    (void)fout_cc; (void)buf; // unused
+    fprintf(fout_ac, "FFT-only run completed for %d inputs, %d channels\n", ninp, nchan);
 }
