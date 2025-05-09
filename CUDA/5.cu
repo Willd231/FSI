@@ -109,12 +109,12 @@ int main(int argc, char *const argv[]) {
 
     // Allocate host-managed buffers
     inp_buf = (cufftComplex**)calloc(ninp, sizeof(cufftComplex*));
-    ft_buf  = (cufftComplex**)calloc(ninp, sizeof(cufftComplex*));
+    ft_buf = (cufftComplex**)calloc(ninp, sizeof(cufftComplex*));
     if (!inp_buf || !ft_buf) { perror("calloc"); exit(EXIT_FAILURE); }
 
     for (int i = 0; i < ninp; i++) {
         CUDA_CHECK(cudaMallocManaged((void**)&inp_buf[i], nchan * sizeof(cufftComplex)));
-        CUDA_CHECK(cudaMallocManaged((void**)&ft_buf[i],  nchan * sizeof(cufftComplex)));
+        CUDA_CHECK(cudaMallocManaged((void**)&ft_buf[i], nchan * sizeof(cufftComplex)));
     }
 
     // Skip initial spectra if needed
@@ -309,7 +309,14 @@ void writeOutput(FILE *fout_ac, FILE *fout_cc, int ninp, int nchan, int iter, in
 
 
    float * temp_buffer = NULL; 
-   temp_buffer=(float*)malloc(sizeof(float)*(nchan));
+   temp_buffer = (float*)malloc(sizeof(float) * nchan);
+
+   //debug
+   if (!temp_buffer) {
+       perror("malloc temp_buffer");
+       exit(EXIT_FAILURE);
+   }
+   //-----
    int inp1 = 0; 
    int inp2 = 0;
    int chan = 0; 
@@ -317,6 +324,14 @@ void writeOutput(FILE *fout_ac, FILE *fout_cc, int ninp, int nchan, int iter, in
     
     for(inp1=0; inp1<ninp; inp1++) {
         for (inp2=inp1; inp2<ninp; inp2++) {
+
+            //debug
+            if (cprod >= ninp * (ninp + 1) / 2) {
+                fprintf(stderr, "Error: cprod out of bounds (%d >= %d)\n", cprod, ninp * (ninp + 1) / 2);
+                exit(EXIT_FAILURE);
+            }
+            ///
+            
             /* make an average by dividing by the number of chunks that went into the total */
             for (chan=0; chan<nchan; chan++) {
                 buf[cprod][chan] = make_cuFloatComplex(
@@ -330,16 +345,36 @@ void writeOutput(FILE *fout_ac, FILE *fout_cc, int ninp, int nchan, int iter, in
                 }
             }
             if(inp1==inp2 && (prod_type == 'A' || prod_type=='B')) {
-                /* write the auto correlation product */
-                fwrite(temp_buffer,sizeof(float),nchan,fout_ac);
+                // ac
+                // debug
+                if (!fout_ac) {
+                    fprintf(stderr, "Error: fout_ac is NULL\n");
+                    exit(EXIT_FAILURE);
+                }
+                ///-----
+                fwrite(temp_buffer, sizeof(float), nchan, fout_ac);
             }
             if(inp1!=inp2 && (prod_type == 'C' || prod_type=='B')) {
-                /* write the cross correlation product */
-                fwrite(buf[cprod],sizeof(cufftComplex),nchan,fout_cc);
+                // cc
+                //debug
+                if (!fout_cc) {
+                    fprintf(stderr, "Error: fout_cc is NULL\n");
+                    exit(EXIT_FAILURE);
+                }
+                //-----
+                fwrite(buf[cprod], sizeof(cufftComplex), nchan, fout_cc);
             }
 
             /* reset the correlation products to zero */
-            memset(buf[cprod],'\0',(nchan)*sizeof(cufftComplex));
+
+            //debug
+            if (!buf[cprod]) {
+                fprintf(stderr, "Error: buf[cprod] is NULL\n");
+                exit(EXIT_FAILURE);
+            }
+            //------
+            
+            memset(buf[cprod], '\0', (nchan) * sizeof(cufftComplex));
             cprod++;
         }
     }
