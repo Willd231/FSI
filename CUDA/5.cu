@@ -305,9 +305,40 @@ void do_FFT_fftw(cufftplan *plan, int nchan, int ninp,
     for(int i=0;i<ninp;i++) CUFFT_CHECK(cufftExecC2C(plan->plans[i], inp_buf[i], ft_buf[i], CUFFT_FORWARD));
 }
 
-void writeOutput(FILE *fout_ac, FILE *fout_cc, int ninp,
-                 int nchan, int iter, int prod_type,
-                 cufftComplex **buf, float normaliser){
-    if(fout_ac) fprintf(fout_ac,"FFT run: inputs=%d chans=%d iters=%d\n",ninp,nchan,iter);
-    if(fout_cc) fprintf(fout_cc,"FFT run: inputs=%d chans=%d iters=%d\n",ninp,nchan,iter);
+void writeOutput(FILE *fout_ac, FILE *fout_cc, int ninp, int nchan, int iter, int prod_type,cufftComplex **buf, float normaliser){
+
+
+   float * temp_buffer = NULL; 
+   temp_buffer=(float*)malloc(sizeof(float)*(nchan));
+   int inp1 = 0; 
+   int inp2 = 0;
+   int chan = 0; 
+   int cprod = 0; 
+    
+    for(inp1=0; inp1<ninp; inp1++) {
+        for (inp2=inp1; inp2<ninp; inp2++) {
+            /* make an average by dividing by the number of chunks that went into the total */
+            for (chan=0; chan<nchan; chan++) {
+                buf[cprod][chan] = buf[cprod][chan] *  normaliser;
+                /* convert the autocorrelation numbers into floats, since the imag parts will be zero*/
+                if (inp1==inp2 && (prod_type == 'A' || prod_type=='B')){
+                
+                    temp_buffer[chan] = creal(buf[cprod][chan]);
+                }
+            }
+            if(inp1==inp2 && (prod_type == 'A' || prod_type=='B')) {
+                /* write the auto correlation product */
+                fwrite(temp_buffer,sizeof(float),nchan,fout_ac);
+            }
+            if(inp1!=inp2 && (prod_type == 'C' || prod_type=='B')) {
+                /* write the cross correlation product */
+                fwrite(buf[cprod],sizeof(cufftComplex),nchan,fout_cc);
+            }
+
+            /* reset the correlation products to zero */
+            memset(buf[cprod],'\0',(nchan)*sizeof(cufftComplex));
+            cprod++;
+        }
+    }
+    if (temp_buffer!=NULL) free(temp_buffer);
 }
