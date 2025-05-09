@@ -117,6 +117,19 @@ int main(int argc, char *const argv[]) {
     for (int i = 0; i < ninp; i++) {
         CUDA_CHECK(cudaMallocManaged((void**)&inp_buf[i], nchan * sizeof(cufftComplex)));
         CUDA_CHECK(cudaMallocManaged((void**)&ft_buf[i],  nchan * sizeof(cufftComplex)));
+        // debug 
+        if (!inp_buf[i] || !ft_buf[i]) {
+            fprintf(stderr, "Error: Failed to allocate memory for buffers\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    // debug
+    for (int i = 0; i < ninp; i++) {
+        if (!inp_buf[i] || !ft_buf[i]) {
+            fprintf(stderr, "Error: Null buffer detected for input %d\n", i);
+            exit(EXIT_FAILURE);
+        }
     }
 
     // skip initial spectra if requested
@@ -295,7 +308,12 @@ void do_FFT_fftw(cufftplan *plan, int nchan, int ninp,
         plan->plans = (cufftHandle*)calloc(ninp, sizeof(cufftHandle));
         if (!plan->plans) { perror("calloc plans"); exit(EXIT_FAILURE); }
         for (int i = 0; i < ninp; i++) {
-            CUFFT_CHECK(cufftPlan1d(&plan->plans[i], nchan, CUFFT_C2C, 1));
+            cufftResult result = cufftPlan1d(&plan->plans[i], nchan, CUFFT_C2C, 1);
+            // debug
+            if (result != CUFFT_SUCCESS) {
+                fprintf(stderr, "Error: cufftPlan1d failed for input %d with error %d\n", i, result);
+                exit(EXIT_FAILURE);
+            }
         }
         plan->doneplan = 1;
     }
