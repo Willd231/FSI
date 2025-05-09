@@ -319,11 +319,11 @@ void writeOutput(FILE *fout_ac, FILE *fout_cc, int ninp, int nchan, int iter, in
         for (inp2=inp1; inp2<ninp; inp2++) {
             /* make an average by dividing by the number of chunks that went into the total */
             for (chan=0; chan<nchan; chan++) {
-                buf[cprod][chan] = buf[cprod][chan] *  normaliser;
+                buf[cprod][chan] = buf[cprod][chan] * normaliser;
                 /* convert the autocorrelation numbers into floats, since the imag parts will be zero*/
                 if (inp1==inp2 && (prod_type == 'A' || prod_type=='B')){
                 
-                    temp_buffer[chan] = creal(buf[cprod][chan]);
+                    temp_buffer[chan] = cuCrealf(buf[cprod][chan]);
                 }
             }
             if(inp1==inp2 && (prod_type == 'A' || prod_type=='B')) {
