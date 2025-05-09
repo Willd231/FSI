@@ -8,9 +8,28 @@
 #include <stdint.h>            // for int16_t
 #include <cufft.h>
 #include <cuda_runtime.h>
+#include <cuComplex.h>
 
 #define MAX_THREADS        1
 #define BYTES_PER_SAMPLE   2
+
+// Error-checking macros
+#define CUDA_CHECK(call) do {                                 
+    cudaError_t err = (call);                               
+    if (err != cudaSuccess) {                               
+        fprintf(stderr, "CUDA Error %s:%d: %s\n",        
+                __FILE__, __LINE__, cudaGetErrorString(err)); 
+        exit(EXIT_FAILURE);                                 
+    }                                                      
+} while(0)
+
+#define CUFFT_CHECK(call) do {                              
+    cufftResult res = (call);                               
+    if (res != CUFFT_SUCCESS) {                             
+        fprintf(stderr, "cuFFT Error %s:%d: %d\n",        
+                __FILE__, __LINE__, res);                 
+        exit(EXIT_FAILURE);                                 
+    }                                                      
 
 typedef struct {
     cufftHandle *plans;
@@ -36,7 +55,7 @@ int  nskip        = 0;
 /* prototypes */
 void   print_usage(char *const argv[]);
 void   parse_cmdline(int argc, char *const argv[], const char *optstring);
-int    openFiles(char *infile, char *outfile, int prod_type,
+void   openFiles(const char *infile, const char *outfile, int prod_type,
                  FILE **fin, FILE **fout_ac, FILE **fout_cc);
 float  elapsed_time(struct timeval *start);
 int    readData(datareader_t *r, int nchan, int ninp,
@@ -58,7 +77,6 @@ int main(int argc, char *const argv[]) {
     cufftplan       fftplan[MAX_THREADS];
     datareader_t    reader[MAX_THREADS];
 
-    /* initialize per-thread data */
     for (int t = 0; t < MAX_THREADS; t++) {
         fftplan[t].doneplan = 0;
         fftplan[t].plans    = NULL;
@@ -68,6 +86,11 @@ int main(int argc, char *const argv[]) {
 
     if (argc < 2) print_usage(argv);
     parse_cmdline(argc, argv, "dc:i:o:n:a:p:s:");
+
+    if (!infilename || !outfilename) {
+        fprintf(stderr, "Error: must specify -i and -o\n");
+        print_usage(argv);
+    }
 
     if (debug) {
         fprintf(stderr,
@@ -80,28 +103,26 @@ int main(int argc, char *const argv[]) {
     openFiles(infilename, outfilename, prod_type,
               &finp, &fout_ac, &fout_cc);
 
-    /* force CUDA runtime init */
-    cudaFree(0);
+    // force CUDA runtime init
+    CUDA_CHECK(cudaFree(0));
     if (debug) fprintf(stderr, "[debug] CUDA runtime initialized\n");
 
-    /* allocate input & FFT buffers */
+    // allocate input & FFT buffers
     inp_buf = (cufftComplex**)calloc(ninp, sizeof(cufftComplex*));
     ft_buf  = (cufftComplex**)calloc(ninp, sizeof(cufftComplex*));
-    if (!inp_buf || !ft_buf) { perror("calloc"); exit(1); }
+    if (!inp_buf || !ft_buf) { perror("calloc"); exit(EXIT_FAILURE); }
+
     for (int i = 0; i < ninp; i++) {
-        if (cudaMallocManaged((void**)&inp_buf[i], nchan * sizeof(cufftComplex)) != cudaSuccess ||
-            cudaMallocManaged((void**)&ft_buf[i],  nchan * sizeof(cufftComplex)) != cudaSuccess) {
-            fprintf(stderr, "cudaMallocManaged failed for stream %d\n", i);
-            exit(1);
-        }
+        CUDA_CHECK(cudaMallocManaged((void**)&inp_buf[i], nchan * sizeof(cufftComplex)));
+        CUDA_CHECK(cudaMallocManaged((void**)&ft_buf[i],  nchan * sizeof(cufftComplex)));
     }
 
-    /* skip initial spectra if requested */
+    // skip initial spectra if requested
     for (int i = 0; i < nskip; i++) {
         readData(&reader[0], nchan, ninp, finp, inp_buf);
     }
 
-    /* main processing loop */
+    // main processing loop
     while (!filedone) {
         gettimeofday(&tv, NULL);
         res = readData(&reader[0], nchan, ninp, finp, inp_buf);
@@ -112,6 +133,7 @@ int main(int argc, char *const argv[]) {
             if (debug) fprintf(stderr, "[debug] about to do FFT\n");
             gettimeofday(&tv, NULL);
             do_FFT_fftw(&fftplan[0], nchan, ninp, inp_buf, ft_buf);
+            CUDA_CHECK(cudaDeviceSynchronize());
             fft_time += elapsed_time(&tv);
         }
 
@@ -120,7 +142,7 @@ int main(int argc, char *const argv[]) {
             gettimeofday(&tv, NULL);
             normaliser = 1.0f / (nchan * iter);
             writeOutput(fout_ac, fout_cc, ninp, nchan, iter,
-                        prod_type, /*buf=*/NULL, normaliser);
+                        prod_type, ft_buf, normaliser);
             nav_written++;
             iter = 0;
             write_time += elapsed_time(&tv);
@@ -133,10 +155,10 @@ int main(int argc, char *const argv[]) {
                 read_time, fft_time, write_time);
     }
 
-    /* cleanup */
-    fclose(finp);
-    if (fout_ac) fclose(fout_ac);
-    if (fout_cc) fclose(fout_cc);
+    // cleanup
+    if (finp && finp != stdin) fclose(finp);
+    if (fout_ac && fout_ac != stdout) fclose(fout_ac);
+    if (fout_cc && fout_cc != stdout) fclose(fout_cc);
 
     for (int i = 0; i < ninp; i++) {
         cudaFree(inp_buf[i]);
@@ -147,16 +169,16 @@ int main(int argc, char *const argv[]) {
 
     for (int t = 0; t < MAX_THREADS; t++) {
         if (fftplan[t].doneplan) {
-            cufftHandle *plans = (cufftHandle*)fftplan[t].plans;
+            cufftHandle *plans = fftplan[t].plans;
             for (int j = 0; j < ninp; j++) {
-                cufftDestroy(plans[j]);
+                CUFFT_CHECK(cufftDestroy(plans[j]));
             }
             free(plans);
         }
     }
 
     for (int t = 0; t < MAX_THREADS; t++) {
-        if (reader[t].buffer) free((unsigned char*)reader[t].buffer);
+        if (reader[t].buffer) free(reader[t].buffer);
     }
 
     return 0;
@@ -175,7 +197,7 @@ void print_usage(char *const argv[]) {
         "  -d        debug\n",
         argv ? argv[0] : "program",
         prod_type, nchan, ninp, naver);
-    exit(1);
+    exit(EXIT_FAILURE);
 }
 
 void parse_cmdline(int argc, char *const argv[], const char *optstring) {
@@ -195,35 +217,36 @@ void parse_cmdline(int argc, char *const argv[], const char *optstring) {
     }
 }
 
-int openFiles(char *infile, char *outfile, int prod_type,
+void openFiles(const char *infile, const char *outfile, int prod_type,
               FILE **fin, FILE **fout_ac, FILE **fout_cc) {
     char tmp[FILENAME_MAX];
-    if (!infile || !outfile) print_usage(NULL);
-
     if (strcmp(infile, "-") == 0) {
         *fin = stdin;
     } else {
         *fin = fopen(infile, "rb");
-        if (!*fin) { perror("fopen input"); exit(1); }
+        if (!*fin) { perror("fopen input"); exit(EXIT_FAILURE); }
     }
 
-    if ((prod_type=='A'||prod_type=='B') && strcmp(outfile,"-")==0) {
-        *fout_ac = stdout;
-    } else if ((prod_type=='C'||prod_type=='B') && strcmp(outfile,"-")==0) {
-        *fout_cc = stdout;
-    } else {
-        if (prod_type=='A'||prod_type=='B') {
+    *fout_ac = NULL;
+    *fout_cc = NULL;
+    if ((prod_type=='A' || prod_type=='B')) {
+        if (strcmp(outfile, "-") == 0) {
+            *fout_ac = stdout;
+        } else {
             snprintf(tmp, sizeof(tmp), "%s.LACSPC", outfile);
             *fout_ac = fopen(tmp, "wb");
-            if (!*fout_ac) { perror("fopen auto"); exit(1); }
-        }
-        if (prod_type=='C'||prod_type=='B') {
-            snprintf(tmp, sizeof(tmp), "%s.LCCSPC", outfile);
-            *fout_cc = fopen(tmp, "wb");
-            if (!*fout_cc) { perror("fopen cross"); exit(1); }
+            if (!*fout_ac) { perror("fopen auto"); exit(EXIT_FAILURE); }
         }
     }
-    return 0;
+    if ((prod_type=='C' || prod_type=='B')) {
+        if (strcmp(outfile, "-") == 0) {
+            *fout_cc = stdout;
+        } else {
+            snprintf(tmp, sizeof(tmp), "%s.LCCSPC", outfile);
+            *fout_cc = fopen(tmp, "wb");
+            if (!*fout_cc) { perror("fopen cross"); exit(EXIT_FAILURE); }
+        }
+    }
 }
 
 float elapsed_time(struct timeval *start) {
@@ -238,17 +261,22 @@ int readData(datareader_t *r, int nchan, int ninp,
     if (!r->init) {
         r->ntoread = ninp * BYTES_PER_SAMPLE * nchan;
         r->buffer  = (unsigned char*)malloc(r->ntoread);
-        if (!r->buffer) { perror("malloc"); exit(1); }
+        if (!r->buffer) { perror("malloc"); exit(EXIT_FAILURE); }
         r->init = 1;
         if (debug) fprintf(stderr, "[debug] Read buffer %d bytes\n", r->ntoread);
     }
 
-    int nread = fread(r->buffer, 1, r->ntoread, fpin);
-    if (nread < r->ntoread) return 1;
+    size_t nread = fread(r->buffer, 1, r->ntoread, fpin);
+    if (nread == 0) return 1;  // EOF
+    if (nread < (size_t)r->ntoread) {
+        fprintf(stderr, "Warning: partial frame read %zu of %d bytes\n",
+                nread, r->ntoread);
+    }
 
     for (int inp = 0; inp < ninp; inp++) {
         for (int ch = 0; ch < nchan; ch++) {
             size_t pos = BYTES_PER_SAMPLE * (ch * ninp + inp);
+            if (pos + 1 >= nread) break;
             uint8_t lo = r->buffer[pos];
             uint8_t hi = r->buffer[pos+1];
             int16_t sample = (int16_t)((hi << 8) | lo);
@@ -263,22 +291,24 @@ void do_FFT_fftw(cufftplan *plan, int nchan, int ninp,
                  cufftComplex **inp_buf, cufftComplex **ft_buf) {
     if (!plan->doneplan) {
         plan->plans = (cufftHandle*)calloc(ninp, sizeof(cufftHandle));
-        if (!plan->plans) { perror("calloc plans"); exit(1); }
+        if (!plan->plans) { perror("calloc plans"); exit(EXIT_FAILURE); }
         for (int i = 0; i < ninp; i++) {
-            if (cufftPlan1d(&plan->plans[i], nchan, CUFFT_C2C, 1) != CUFFT_SUCCESS) {
-                fprintf(stderr, "cufftPlan1d failed\n"); exit(1);
-            }
+            CUFFT_CHECK(cufftPlan1d(&plan->plans[i], nchan, CUFFT_C2C, 1));
         }
         plan->doneplan = 1;
     }
     for (int i = 0; i < ninp; i++) {
-        cufftExecC2C(plan->plans[i], inp_buf[i], ft_buf[i], CUFFT_FORWARD);
+        CUFFT_CHECK(cufftExecC2C(plan->plans[i], inp_buf[i], ft_buf[i], CUFFT_FORWARD));
     }
 }
 
 void writeOutput(FILE *fout_ac, FILE *fout_cc, int ninp,
                  int nchan, int naver, int prod_type,
                  cufftComplex **buf, float normaliser) {
-    (void)fout_cc; (void)buf; // unused
-    fprintf(fout_ac, "FFT-only run completed for %d inputs, %d channels\n", ninp, nchan);
+    if (fout_ac) {
+        fprintf(fout_ac, "FFT-only run completed for %d inputs, %d channels\n", ninp, nchan);
+    }
+    if (fout_cc) {
+        fprintf(fout_cc, "FFT-only run completed for %d inputs, %d channels\n", ninp, nchan);
+    }
 }
