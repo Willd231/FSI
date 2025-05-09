@@ -92,12 +92,12 @@ int main(int argc, char *const argv[]) {
     }
 
     // Parse command line
-    if (argc < 2) print_usage(argv);
-    parse_cmdline(argc, argv, "dc:i:o:n:a:p:s:");
+    if (argc < 2) print_usage((char *const *)argv);
+    parse_cmdline(argc, (char *const *)argv, "dc:i:o:n:a:p:s:");
 
     if (!infilename || !outfilename) {
         fprintf(stderr, "Error: must specify -i and -o\n");
-        print_usage(argv);
+        print_usage((char *const *)argv);
     }
 
     openFiles(infilename, outfilename, prod_type,
@@ -211,7 +211,7 @@ void print_usage(char *const argv[]) {
 
 void parse_cmdline(int argc, char *const argv[], const char *optstring) {
     int c;
-    while ((c = getopt(argc, argv[], optstring)) != -1) {
+    while ((c = getopt(argc, argv, optstring)) != -1) {
         switch (c) {
             case 'c': nchan       = atoi(optarg);       break;
             case 'n': ninp        = atoi(optarg);       break;
