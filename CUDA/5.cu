@@ -141,11 +141,16 @@ int main(int argc, char *const argv[]) {
         }
 
         if ((filedone && !nav_written) || ++iter == naver) {
-            if (debug) fprintf(stderr, "about to writeOutput\n");
+            if (debug) fprintf(stderr, "Calling writeOutput: iter=%d, filedone=%d\n", iter, filedone);
             gettimeofday(&tv, NULL);
             normaliser = 1.0f / (nchan * iter);
-            writeOutput(fout_ac, fout_cc, ninp, nchan, iter,
-                        prod_type, ft_buf, normaliser);
+            writeOutput(fout_ac, fout_cc, ninp, nchan, iter, prod_type, ft_buf, normaliser);
+
+            //may need to remove this
+            if (fout_ac) fflush(fout_ac);
+            if (fout_cc) fflush(fout_cc);
+            //---------------
+
             nav_written++;
             iter = 0;
             write_time += elapsed_time(&tv);
@@ -211,7 +216,13 @@ void parse_cmdline(int argc, char *const argv[], const char *optstring) {
             case 'c': nchan       = atoi(optarg);       break;
             case 'n': ninp        = atoi(optarg);       break;
             case 'a': naver       = atoi(optarg);       break;
-            case 'p': prod_type   = toupper(optarg[0]); break;
+            case 'p': 
+                prod_type = toupper(optarg[0]); 
+                if (prod_type != 'A' && prod_type != 'C' && prod_type != 'B') {
+                    fprintf(stderr, "Error: Invalid product type '%c'. Must be A, C, or B.\n", prod_type);
+                    exit(EXIT_FAILURE);
+                }
+                break;
             case 'i': infilename  = optarg;             break;
             case 'o': outfilename = optarg;             break;
             case 's': nskip       = atoi(optarg);       break;
@@ -236,15 +247,23 @@ void openFiles(const char *infile, const char *outfile, int prod_type,
         if (strcmp(outfile, "-") == 0) *fout_ac = stdout;
         else {
             snprintf(tmp, sizeof(tmp), "%s.LACSPC", outfile);
-            *fout_ac = fopen(tmp, "wb"); if (!*fout_ac){ perror("fopen auto"); exit(EXIT_FAILURE);}\
-    }
+            *fout_ac = fopen(tmp, "wb"); 
+            if (!*fout_ac) { 
+                perror("fopen auto"); 
+                exit(EXIT_FAILURE); 
+            }
+        }
     }
     if (prod_type=='C' || prod_type=='B') {
         if (strcmp(outfile, "-") == 0) *fout_cc = stdout;
         else {
             snprintf(tmp, sizeof(tmp), "%s.LCCSPC", outfile);
-            *fout_cc = fopen(tmp, "wb"); if (!*fout_cc){ perror("fopen cross"); exit(EXIT_FAILURE);}\
-    }
+            *fout_cc = fopen(tmp, "wb"); 
+            if (!*fout_cc) { 
+                perror("fopen cross"); 
+                exit(EXIT_FAILURE); 
+            }
+        }
     }
 }
 
