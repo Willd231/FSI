@@ -211,7 +211,7 @@ void print_usage(char *const argv[]) {
 
 void parse_cmdline(int argc, char *const argv[], const char *optstring) {
     int c;
-    while ((c = getopt(argc, argv, optstring)) != -1) {
+    while ((c = getopt(argc, argv[], optstring)) != -1) {
         switch (c) {
             case 'c': nchan       = atoi(optarg);       break;
             case 'n': ninp        = atoi(optarg);       break;
@@ -319,7 +319,10 @@ void writeOutput(FILE *fout_ac, FILE *fout_cc, int ninp, int nchan, int iter, in
         for (inp2=inp1; inp2<ninp; inp2++) {
             /* make an average by dividing by the number of chunks that went into the total */
             for (chan=0; chan<nchan; chan++) {
-                buf[cprod][chan] = buf[cprod][chan] * normaliser;
+                buf[cprod][chan] = make_cuFloatComplex(
+                    cuCrealf(buf[cprod][chan]) * normaliser,
+                    cuCimagf(buf[cprod][chan]) * normaliser
+                );
                 /* convert the autocorrelation numbers into floats, since the imag parts will be zero*/
                 if (inp1==inp2 && (prod_type == 'A' || prod_type=='B')){
                 
