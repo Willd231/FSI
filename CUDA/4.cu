@@ -13,7 +13,8 @@
 #define MAX_THREADS        1
 #define BYTES_PER_SAMPLE   2
 
-// Error-checking macros
+
+// that i found in the docs 
 #define CUDA_CHECK(call) do {                                 
     cudaError_t err = (call);                               
     if (err != cudaSuccess) {                               
@@ -29,7 +30,8 @@
         fprintf(stderr, "cuFFT Error %s:%d: %d\n",        
                 __FILE__, __LINE__, res);                 
         exit(EXIT_FAILURE);                                 
-    }                                                      
+    }                                                  
+//took out the CMAC just to focus on the FFT
 
 typedef struct {
     cufftHandle *plans;
@@ -103,7 +105,7 @@ int main(int argc, char *const argv[]) {
     openFiles(infilename, outfilename, prod_type,
               &finp, &fout_ac, &fout_cc);
 
-    // force CUDA runtime init
+    
     CUDA_CHECK(cudaFree(0));
     if (debug) fprintf(stderr, "[debug] CUDA runtime initialized\n");
 
