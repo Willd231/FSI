@@ -13,24 +13,24 @@
 #define MAX_THREADS        1
 #define BYTES_PER_SAMPLE   2
 
-#define CUDA_CHECK(call)                                                        \
-    do {                                                                        \
-        cudaError_t _err = (call);                                              \
-        if (_err != cudaSuccess) {                                              \
-            fprintf(stderr, "CUDA Error %s:%d: %s\n",                       \
-                    __FILE__, __LINE__, cudaGetErrorString(_err));              \
-            exit(EXIT_FAILURE);                                                 \
-        }                                                                       \
+#define CUDA_CHECK(call)                                                        
+    do {                                                                        
+        cudaError_t _err = (call);                                              
+        if (_err != cudaSuccess) {                                              
+            fprintf(stderr, "CUDA Error %s:%d: %s\n",                       
+                    __FILE__, __LINE__, cudaGetErrorString(_err));              
+            exit(EXIT_FAILURE);                                                 
+        }                                                                       
     } while (0)
 
-#define CUFFT_CHECK(call)                                                       \
-    do {                                                                        \
-        cufftResult _status = (call);                                           \
-        if (_status != CUFFT_SUCCESS) {                                         \
-            fprintf(stderr, "cuFFT Error %s:%d: %d\n",                      \
-                    __FILE__, __LINE__, (int)_status);                         \
-            exit(EXIT_FAILURE);                                                 \
-        }                                                                       \
+#define CUFFT_CHECK(call)                                                       
+    do {                                                                        
+        cufftResult _status = (call);                                           
+        if (_status != CUFFT_SUCCESS) {                                         
+            fprintf(stderr, "cuFFT Error %s:%d: %d\n",                      
+                    __FILE__, __LINE__, (int)_status);                         
+            exit(EXIT_FAILURE);                                                 
+        }                                                                       
     } while (0)
     
 typedef struct {
@@ -57,16 +57,12 @@ int  nskip        = 0;
 /* Function prototypes */
 void   print_usage(char *const argv[]);
 void   parse_cmdline(int argc, char *const argv[], const char *optstring);
-void   openFiles(const char *infile, const char *outfile, int prod_type,
-                 FILE **fin, FILE **fout_ac, FILE **fout_cc);
+void   openFiles(const char *infile, const char *outfile, int prod_type, FILE **fin, FILE **fout_ac, FILE **fout_cc);
 float  elapsed_time(struct timeval *start);
-int    readData(datareader_t *r, int nchan, int ninp,
-                FILE *fpin, cufftComplex **inp_buf);
-void   do_FFT_fftw(cufftplan *plan, int nchan, int ninp,
-                   cufftComplex **inp_buf, cufftComplex **ft_buf);
-void   writeOutput(FILE *fout_ac, FILE *fout_cc, int ninp,
-                   int nchan, int iter, int prod_type,
-                   cufftComplex **buf, float normaliser);
+int    readData(datareader_t *r, int nchan, int ninp, FILE *fpin, cufftComplex **inp_buf);
+void   do_FFT_fftw(cufftplan *plan, int nchan, int ninp, cufftComplex **inp_buf, cufftComplex **ft_buf);
+void   do_CMAC(const int nchan, const int ninp, const int prod_type, cufftComplex **ft_buf, cufftComplex **corr_buf);
+void   writeOutput(FILE *fout_ac, FILE *fout_cc, int ninp, int nchan, int iter, int prod_type, cufftComplex **buf, float normaliser);
 
 int main(int argc, char *const argv[]) {
     int             filedone = 0;
@@ -109,12 +105,19 @@ int main(int argc, char *const argv[]) {
 
     // Allocate host-managed buffers
     inp_buf = (cufftComplex**)calloc(ninp, sizeof(cufftComplex*));
-    ft_buf = (cufftComplex**)calloc(ninp, sizeof(cufftComplex*));
+    ft_buf = (cufftComplex**)calloc(ncorr, sizeof(cufftComplex*));
     if (!inp_buf || !ft_buf) { perror("calloc"); exit(EXIT_FAILURE); }
 
     for (int i = 0; i < ninp; i++) {
         CUDA_CHECK(cudaMallocManaged((void**)&inp_buf[i], nchan * sizeof(cufftComplex)));
+    }
+
+    for (int i = 0; i < ncorr; i++) {
         CUDA_CHECK(cudaMallocManaged((void**)&ft_buf[i], nchan * sizeof(cufftComplex)));
+        if (!ft_buf[i]) {
+            fprintf(stderr, "Error: cudaMallocManaged failed for ft_buf[%d]\n", i);
+            exit(EXIT_FAILURE);
+        }
     }
 
     // Skip initial spectra if needed
@@ -173,6 +176,8 @@ int main(int argc, char *const argv[]) {
 
     for (int i = 0; i < ninp; i++) {
         cudaFree(inp_buf[i]);
+    }
+    for (int i = 0; i < ncorr; i++) {
         cudaFree(ft_buf[i]);
     }
     free(inp_buf);
@@ -294,8 +299,7 @@ int readData(datareader_t *r, int nchan, int ninp,
     return 0;
 }
 
-void do_FFT_fftw(cufftplan *plan, int nchan, int ninp,
-                 cufftComplex **inp_buf, cufftComplex **ft_buf){
+void do_FFT_fftw(cufftplan *plan, int nchan, int ninp, cufftComplex **inp_buf, cufftComplex **ft_buf){
     if (!plan->doneplan){
         plan->plans = (cufftHandle*)calloc(ninp, sizeof(cufftHandle));
         if (!plan->plans){ perror("calloc"); exit(EXIT_FAILURE);}\
@@ -305,11 +309,35 @@ void do_FFT_fftw(cufftplan *plan, int nchan, int ninp,
     for(int i=0;i<ninp;i++) CUFFT_CHECK(cufftExecC2C(plan->plans[i], inp_buf[i], ft_buf[i], CUFFT_FORWARD));
 }
 
+/* accumulate correlation products */
+void do_CMAC(const int nchan,const int ninp,const int prod_type, cufftComplex **ft_buf, cufftComplex **corr_buf) {
+    int inp1,inp2,cprod=0;
+    cufftComplex *ftinp1,*ftinp2,*cbuf;
+    register int chan;
+    
+    for(inp1=0; inp1<ninp; inp1++) {
+        ftinp1 = ft_buf[inp1];
+        for(inp2=inp1; inp2<ninp; inp2++) {
+            ftinp2 = ft_buf[inp2];
+            cbuf = corr_buf[cprod];
+            if(prod_type=='B' || ((prod_type=='C' && inp1!=inp2) || (prod_type=='A' && inp1==inp2))) {
+                for(chan=0;chan<nchan;chan++) {
+                    cbuf[chan] += ftinp1[chan]*conjf(ftinp2[chan]);
+                }
+            }
+            cprod++;         
+        }
+    }    
+}
+
 void writeOutput(FILE *fout_ac, FILE *fout_cc, int ninp, int nchan, int iter, int prod_type,cufftComplex **buf, float normaliser){
 
-
+    // consider mallocing temp_buffer in main once and freeing it at the end of program execution
    float * temp_buffer = NULL; 
    temp_buffer = (float*)malloc(sizeof(float) * nchan);
+
+   // debug
+   printf("temp buffer allocated\n");
 
    //debug
    if (!temp_buffer) {
@@ -326,53 +354,61 @@ void writeOutput(FILE *fout_ac, FILE *fout_cc, int ninp, int nchan, int iter, in
         for (inp2=inp1; inp2<ninp; inp2++) {
 
             //debug
-            if (cprod >= ninp * (ninp + 1) / 2) {
-                fprintf(stderr, "Error: cprod out of bounds (%d >= %d)\n", cprod, ninp * (ninp + 1) / 2);
-                exit(EXIT_FAILURE);
-            }
-            ///
-            
-            /* make an average by dividing by the number of chunks that went into the total */
-            for (chan=0; chan<nchan; chan++) {
+            printf("current inp1=%d inp2=%d\n", inp1, inp2);
+
+            for (chan = 0; chan < nchan; chan++) {
+                if (cprod >= ninp * (ninp + 1) / 2) {
+                    fprintf(stderr, "Error: cprod out of bounds (%d >= %d)\n", cprod, ninp * (ninp + 1) / 2);
+                    exit(EXIT_FAILURE);
+                }
+                if (!buf[cprod]) {
+                    fprintf(stderr, "Error: buf[cprod] is NULL (cprod=%d)\n", cprod);
+                    exit(EXIT_FAILURE);
+                }
+                if (chan >= nchan) {
+                    fprintf(stderr, "Error: chan out of bounds (%d >= %d)\n", chan, nchan);
+                    exit(EXIT_FAILURE);
+                }
+
                 buf[cprod][chan] = make_cuFloatComplex(
                     cuCrealf(buf[cprod][chan]) * normaliser,
                     cuCimagf(buf[cprod][chan]) * normaliser
                 );
-                /* convert the autocorrelation numbers into floats, since the imag parts will be zero*/
-                if (inp1==inp2 && (prod_type == 'A' || prod_type=='B')){
-                
+
+                if (inp1 == inp2 && (prod_type == 'A' || prod_type == 'B')) {
+                    if (!temp_buffer) {
+                        fprintf(stderr, "Error: temp_buffer is NULL\n");
+                        exit(EXIT_FAILURE);
+                    }
                     temp_buffer[chan] = cuCrealf(buf[cprod][chan]);
                 }
             }
+
+            // AC
             if(inp1==inp2 && (prod_type == 'A' || prod_type=='B')) {
-                // ac
-                // debug
                 if (!fout_ac) {
                     fprintf(stderr, "Error: fout_ac is NULL\n");
                     exit(EXIT_FAILURE);
                 }
-                ///-----
                 fwrite(temp_buffer, sizeof(float), nchan, fout_ac);
             }
+
+            // CC
             if(inp1!=inp2 && (prod_type == 'C' || prod_type=='B')) {
-                // cc
-                //debug
+
                 if (!fout_cc) {
                     fprintf(stderr, "Error: fout_cc is NULL\n");
                     exit(EXIT_FAILURE);
                 }
-                //-----
                 fwrite(buf[cprod], sizeof(cufftComplex), nchan, fout_cc);
             }
 
             /* reset the correlation products to zero */
 
-            //debug
             if (!buf[cprod]) {
-                fprintf(stderr, "Error: buf[cprod] is NULL\n");
+                fprintf(stderr, "Error: buf[cprod] is NULL (cprod=%d)\n", cprod);
                 exit(EXIT_FAILURE);
             }
-            //------
             
             memset(buf[cprod], '\0', (nchan) * sizeof(cufftComplex));
             cprod++;
