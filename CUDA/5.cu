@@ -16,7 +16,9 @@
 #define CUDA_CHECK(call)                                                        
     do {                                                                        
         cudaError_t _err = (call);                                              
-        if (_err != cudaSuccess) {                                              
+        if (_err != cudaSuccess) {    
+            printf("CUDA Error %s:%d: %s\n",                       
+                    __FILE__, __LINE__, cudaGetErrorString(_err));                                          
             fprintf(stderr, "CUDA Error %s:%d: %s\n",                       
                     __FILE__, __LINE__, cudaGetErrorString(_err));              
             exit(EXIT_FAILURE);                                                 
@@ -26,7 +28,9 @@
 #define CUFFT_CHECK(call)                                                       
     do {                                                                        
         cufftResult _status = (call);                                           
-        if (_status != CUFFT_SUCCESS) {                                         
+        if (_status != CUFFT_SUCCESS) {      
+            printf("CUFFT Error %s:%d: %d\n",                      
+                    __FILE__, __LINE__, (int)_status);                                   
             fprintf(stderr, "cuFFT Error %s:%d: %d\n",                      
                     __FILE__, __LINE__, (int)_status);                         
             exit(EXIT_FAILURE);                                                 
