@@ -129,8 +129,10 @@ int main(int argc, char *const argv[]) {
         readData(&reader[0], nchan, ninp, finp, inp_buf);
     }
 
-    // Main processing loop
+    /* process file */
     while (!filedone) {
+
+        /* read time chunk into buffers */
         gettimeofday(&tv, NULL);
         res = readData(&reader[0], nchan, ninp, finp, inp_buf);
         if (debug && res)
@@ -141,12 +143,23 @@ int main(int argc, char *const argv[]) {
         if (!filedone) {
             if (debug && (loop_count % 1000) == 0)
                 fprintf(stderr, "db  fft iteration %lld\n", loop_count);
+
+            /* do the FFT */
             gettimeofday(&tv, NULL);
             do_FFT_fftw(&fftplan[0], nchan, ninp, inp_buf, ft_buf);
             CUDA_CHECK(cudaDeviceSynchronize());
             fft_time += elapsed_time(&tv);
+
+            /* do the CMAC */
+            gettimeofday(&tv, NULL);
+            do_CMAC(nchan, ninp, prod_type, ft_buf, ft_buf);
+            CUDA_CHECK(cudaDeviceSynchronize());
+            cmac_time += elapsed_time(&tv);
+
+
         }
 
+        /* write and average if it is time to */
         if ((filedone && !nav_written) || ++iter == naver) {
             if (debug) fprintf(stderr, "Calling writeOutput: iter=%d, filedone=%d\n", iter, filedone);
             gettimeofday(&tv, NULL);
@@ -173,7 +186,7 @@ int main(int argc, char *const argv[]) {
                 read_time, fft_time, write_time);
     }
 
-    // Cleanup
+    /* clean up */
     if (finp && finp != stdin) fclose(finp);
     if (fout_ac && fout_ac != stdout) fclose(fout_ac);
     if (fout_cc && fout_cc != stdout) fclose(fout_cc);
@@ -184,6 +197,7 @@ int main(int argc, char *const argv[]) {
     for (int i = 0; i < ncorr; i++) {
         cudaFree(ft_buf[i]);
     }
+
     free(inp_buf);
     free(ft_buf);
 
@@ -334,6 +348,9 @@ void do_CMAC(const int nchan,const int ninp,const int prod_type, cufftComplex **
     }    
 }
 
+/* write out correlation products.
+   Apply a normalisation factor that depends on the FFT length and the number
+   of averages so the flux density is the same regardless of the spectral channel width */
 void writeOutput(FILE *fout_ac, FILE *fout_cc, int ninp, int nchan, int iter, int prod_type,cufftComplex **buf, float normaliser){
 
     // consider mallocing temp_buffer in main once and freeing it at the end of program execution
@@ -349,6 +366,7 @@ void writeOutput(FILE *fout_ac, FILE *fout_cc, int ninp, int nchan, int iter, in
        exit(EXIT_FAILURE);
    }
    //-----
+   
    int inp1 = 0; 
    int inp2 = 0;
    int chan = 0; 
