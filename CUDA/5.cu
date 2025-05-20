@@ -1,3 +1,8 @@
+    // compile: nvcc 5.cu -lcufft -o 5
+    // test directory: /mnt/carsedat/20250220_181537_0000.dat
+    // run: ./5 /mnt/carsedat/20250220_181537_0000.dat
+
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -12,29 +17,30 @@
 
 #define MAX_THREADS        1
 #define BYTES_PER_SAMPLE   2
+#define TESTING            0      // 1 for testing (1 packet), 0 for whole file
 
-#define CUDA_CHECK(call)                                                        
-    do {                                                                        
-        cudaError_t _err = (call);                                              
-        if (_err != cudaSuccess) {    
-            printf("CUDA Error %s:%d: %s\n",                       
-                    __FILE__, __LINE__, cudaGetErrorString(_err));                                          
-            fprintf(stderr, "CUDA Error %s:%d: %s\n",                       
-                    __FILE__, __LINE__, cudaGetErrorString(_err));              
-            exit(EXIT_FAILURE);                                                 
-        }                                                                       
-    } while (0)
+#define CUDA_CHECK(call) \
+    do { \
+        cudaError_t _err = (call); \
+        if (_err != cudaSuccess) {    \
+            printf("CUDA Error %s:%d: %s\n",   \
+                    __FILE__, __LINE__, cudaGetErrorString(_err));          \
+            fprintf(stderr, "CUDA Error %s:%d: %s\n",         \
+                    __FILE__, __LINE__, cudaGetErrorString(_err));         \
+            exit(EXIT_FAILURE);                     \
+        }                              \
+    } while (0) 
 
-#define CUFFT_CHECK(call)                                                       
-    do {                                                                        
-        cufftResult _status = (call);                                           
-        if (_status != CUFFT_SUCCESS) {      
-            printf("CUFFT Error %s:%d: %d\n",                      
-                    __FILE__, __LINE__, (int)_status);                                   
-            fprintf(stderr, "cuFFT Error %s:%d: %d\n",                      
-                    __FILE__, __LINE__, (int)_status);                         
-            exit(EXIT_FAILURE);                                                 
-        }                                                                       
+#define CUFFT_CHECK(call)      \
+    do {                        \
+        cufftResult _status = (call); \
+        if (_status != CUFFT_SUCCESS) { \
+            printf("CUFFT Error %s:%d: %d\n", \
+                    __FILE__, __LINE__, (int)_status); \
+            fprintf(stderr, "cuFFT Error %s:%d: %d\n",  \
+                    __FILE__, __LINE__, (int)_status);   \
+            exit(EXIT_FAILURE);                           \
+        }                                                  \
     } while (0)
     
 typedef struct {
@@ -131,7 +137,6 @@ int main(int argc, char *const argv[]) {
 
     /* process file */
     while (!filedone) {
-
         /* read time chunk into buffers */
         gettimeofday(&tv, NULL);
         res = readData(&reader[0], nchan, ninp, finp, inp_buf);
@@ -151,11 +156,10 @@ int main(int argc, char *const argv[]) {
             fft_time += elapsed_time(&tv);
 
             /* do the CMAC */
-            gettimeofday(&tv, NULL);
-            do_CMAC(nchan, ninp, prod_type, ft_buf, ft_buf);
-            CUDA_CHECK(cudaDeviceSynchronize());
-            cmac_time += elapsed_time(&tv);
-
+            // gettimeofday(&tv, NULL);
+            // do_CMAC(nchan, ninp, prod_type, ft_buf, ft_buf);
+            // CUDA_CHECK(cudaDeviceSynchronize());
+            // cmac_time += elapsed_time(&tv);
 
         }
 
@@ -174,10 +178,48 @@ int main(int argc, char *const argv[]) {
             nav_written++;
             iter = 0;
             write_time += elapsed_time(&tv);
+            
+            /* Stop after running 1 packet for testing (make sure naver and TESTING are set to equal 1)*/
+            if(TESTING){
+                if (debug) {
+                    fprintf(stderr,"read=%.3fms  fft=%.3fms  write=%.3fms\n",read_time, fft_time, write_time);
+                }
+
+                if (finp && finp != stdin) fclose(finp);
+                if (fout_ac && fout_ac != stdout) fclose(fout_ac);
+                if (fout_cc && fout_cc != stdout) fclose(fout_cc);
+
+                for (int i = 0; i < ninp; i++) {
+                    cudaFree(inp_buf[i]);
+                }
+                for (int i = 0; i < ncorr; i++) {
+                    cudaFree(ft_buf[i]);
+                }
+
+                free(inp_buf);
+                free(ft_buf);
+
+                for (int t = 0; t < MAX_THREADS; t++) {
+                    if (fftplan[t].doneplan) {
+                        for (int j = 0; j < ninp; j++) {
+                            CUFFT_CHECK(cufftDestroy(fftplan[t].plans[j]));
+                        }
+                        free(fftplan[t].plans);
+                    }
+                }
+
+                for (int t = 0; t < MAX_THREADS; t++) {
+                    if (reader[t].buffer) free(reader[t].buffer);
+                }
+
+                return 0;
+            }
         }
 
         loop_count++;
     }
+    
+    
 
     // Final debug summary
     if (debug) {
@@ -320,7 +362,10 @@ int readData(datareader_t *r, int nchan, int ninp,
 void do_FFT_fftw(cufftplan *plan, int nchan, int ninp, cufftComplex **inp_buf, cufftComplex **ft_buf){
     if (!plan->doneplan){
         plan->plans = (cufftHandle*)calloc(ninp, sizeof(cufftHandle));
-        if (!plan->plans){ perror("calloc"); exit(EXIT_FAILURE);}\
+        if (!plan->plans){ 
+            perror("calloc"); 
+            exit(EXIT_FAILURE);
+        }
         for(int i=0;i<ninp;i++) CUFFT_CHECK(cufftPlan1d(&plan->plans[i],nchan,CUFFT_C2C,1));
         plan->doneplan=1;
     }
@@ -340,7 +385,11 @@ void do_CMAC(const int nchan,const int ninp,const int prod_type, cufftComplex **
             cbuf = corr_buf[cprod];
             if(prod_type=='B' || ((prod_type=='C' && inp1!=inp2) || (prod_type=='A' && inp1==inp2))) {
                 for(chan=0;chan<nchan;chan++) {
-                    cbuf[chan] += ftinp1[chan]*conjf(ftinp2[chan]);
+                    //cbuf[chan] += ftinp1[chan]*conjf(ftinp2[chan]);
+                    //cbuf[chan] += cuCmulf(ftinp1[chan], cuConjf(ftinp2[chan]));
+                    cuFloatComplex prod = cuCmulf(ftinp1[chan], cuConjf(ftinp2[chan]));
+                    cbuf[chan].x += prod.x;
+                    cbuf[chan].y += prod.y;
                 }
             }
             cprod++;         
@@ -366,7 +415,7 @@ void writeOutput(FILE *fout_ac, FILE *fout_cc, int ninp, int nchan, int iter, in
        exit(EXIT_FAILURE);
    }
    //-----
-   
+
    int inp1 = 0; 
    int inp2 = 0;
    int chan = 0; 
