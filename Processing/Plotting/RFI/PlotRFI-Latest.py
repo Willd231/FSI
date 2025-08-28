@@ -1,4 +1,4 @@
-#/home/wdellinger/anaconda3/bin/python
+#/usr/bin/python3
 
 import struct
 import numpy as np
