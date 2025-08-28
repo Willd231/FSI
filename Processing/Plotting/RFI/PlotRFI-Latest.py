@@ -70,11 +70,9 @@ with open(file_path, "rb") as fp:
 # Convert timestamp to readable format
 readable_times = [datetime.utcfromtimestamp(t) for t in timestamp]
 
-# Print readable times (optional)
 for t in readable_times:
     print(t)
 
-# Set small values in Autospec to avoid log(0)
 Autospec[Autospec <= 0] = 1e-10
 
 # Create the figure for displaying the images
@@ -85,7 +83,8 @@ for cnt in range(ninp):
     autospec = Autospec[:, cnt, :]
     cax = ax1[cnt].imshow(10 * np.log10(autospec.T), cmap='copper_r', aspect='auto')
     ax1[cnt].invert_yaxis()
-    ax1[cnt].set_xticks(range(len(readable_times)))
+    better_times = readable_times[::2]
+    ax1[cnt].set_xticks((range(len(readable_times))))
     ax1[cnt].set_xticklabels(readable_times)
     ax1[cnt].set_xlabel('Time')
     ax1[cnt].set_ylabel('Channel')
