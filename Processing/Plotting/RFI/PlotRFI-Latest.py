@@ -1,4 +1,4 @@
-#!/home/wdellinger/anaconda3/bin/python
+#/home/wdellinger/anaconda3/bin/python
 
 import struct
 import numpy as np
@@ -80,12 +80,14 @@ Autospec[Autospec <= 0] = 1e-10
 # Create the figure for displaying the images
 fig1, ax1 = plt.subplots(ninp, 1, figsize=(10, 20), constrained_layout=True)
 
+new_times = readable_times[::2]
+
 # Plot the spectrograms
 for cnt in range(ninp):
     autospec = Autospec[:, cnt, :]
     cax = ax1[cnt].imshow(10 * np.log10(autospec.T), cmap='copper_r', aspect='auto')
     ax1[cnt].invert_yaxis()
-    ax1[cnt].set_xticks(range(len(readable_times)))
+    ax1[cnt].set_xticks(range(len(new_times)))
     ax1[cnt].set_xticklabels(readable_times)
     ax1[cnt].set_xlabel('Time')
     ax1[cnt].set_ylabel('Channel')
