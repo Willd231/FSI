@@ -1,4 +1,4 @@
-#!/home/wdellinger/anaconda3/bin/python
+#/usr/bin/python3
 
 import struct
 import numpy as np
@@ -70,21 +70,24 @@ with open(file_path, "rb") as fp:
 # Convert timestamp to readable format
 readable_times = [datetime.utcfromtimestamp(t) for t in timestamp]
 
+# Print readable times (optional)
 for t in readable_times:
     print(t)
 
+# Set small values in Autospec to avoid log(0)
 Autospec[Autospec <= 0] = 1e-10
 
 # Create the figure for displaying the images
 fig1, ax1 = plt.subplots(ninp, 1, figsize=(10, 20), constrained_layout=True)
+
+new_times = readable_times[::2]
 
 # Plot the spectrograms
 for cnt in range(ninp):
     autospec = Autospec[:, cnt, :]
     cax = ax1[cnt].imshow(10 * np.log10(autospec.T), cmap='copper_r', aspect='auto')
     ax1[cnt].invert_yaxis()
-    better_times = readable_times[::2]
-    ax1[cnt].set_xticks((range(len(readable_times))))
+    ax1[cnt].set_xticks(range(len(new_times)))
     ax1[cnt].set_xticklabels(readable_times)
     ax1[cnt].set_xlabel('Time')
     ax1[cnt].set_ylabel('Channel')
@@ -123,4 +126,5 @@ def plot():
 
 # Start the plotting loop
 plot()
+
 
