@@ -1,4 +1,4 @@
-#/usr/bin/python3
+#!/usr/bin/python3
 
 import struct
 import numpy as np
@@ -85,16 +85,18 @@ new_times = readable_times[::2]
 # Plot the spectrograms
 for cnt in range(ninp):
     autospec = Autospec[:, cnt, :]
+    plot_data = np.where(autospec.T <= 0, 1e-10, autospec.T)
     cax = ax1[cnt].imshow(10 * np.log10(autospec.T), cmap='copper_r', aspect='auto')
     ax1[cnt].invert_yaxis()
-    ax1[cnt].set_xticks(range(len(new_times)))
-    ax1[cnt].set_xticklabels(readable_times)
+    tick_indices = np.linspace(0, len(readable_times)-1, num=10, dtype=int)  # 10 ticks
+    ax1[cnt].set_xticks(tick_indices)
+    ax1[cnt].set_xticklabels([readable_times[i] for i in tick_indices], rotation=45)
     ax1[cnt].set_xlabel('Time')
     ax1[cnt].set_ylabel('Channel')
     ax1[cnt].set_title(f'{adc_channels[cnt]}')
     cbar = fig1.colorbar(cax, ax=ax1[cnt])
     cbar.ax.set_ylabel('dB')
-
+    
 # Function to handle figure close event
 def on_close(event):
     global figure_closed
