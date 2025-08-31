@@ -1,7 +1,7 @@
 # FSI-Radio-Telescope-Project
 This repository contains all the work I did to further the progress of this project 
 
-The goal of this project is to reduce human generated noise picked up by radio telescopes.
+The goal of this project is to reduce human-generated / 5G noise picked up by radio telescopes.
 
 High-Dynamic-Range Receiver Systems: Designed to enhance sensitivity and operate effectively in a spectrum-sharing environment.
 RFI Mitigation Techniques: Strategies to reduce interference from active services.
