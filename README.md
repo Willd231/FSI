@@ -1,8 +1,8 @@
-#FSI Radio Telescope Project
+# FSI Radio Telescope Project
 
 This repository contains my contributions to advancing the FSI Radio Telescope Project, with a primary focus on reducing human-generated and 5G interference in radio astronomy.
 
-Project Overview
+## Project Overview
 
 The project explores techniques and systems designed to improve radio telescope performance in challenging spectrum-sharing environments.
 
@@ -20,19 +20,19 @@ Experimental Setup
 
 4-channel voltage recording system (~120 MHz bandwidth) using RFSoC FPGA technology.
 
-Core Components
+## Core Components
 
 Data Acquisition
 
 Records signals from telescopes and reference antennas.
 
-Test Sites
+## Test Sites
 
 Malabar, Florida
 
 Arecibo Observatory
 
-Objectives
+## Objectives
 
 Develop and implement real-time RFI mitigation strategies.
 
