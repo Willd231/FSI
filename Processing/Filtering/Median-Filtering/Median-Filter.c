@@ -1,117 +1,126 @@
+// median.c
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <sys/stat.h>
 #include <string.h>
-#include <inttypes.h>  // for PRIu16
+#include <inttypes.h>
+#include <errno.h>
 
-uint16_t *get_data(const char *filename, size_t *length) {
+static void die(const char *msg) {
+    perror(msg);
+    exit(1);
+}
+
+static uint16_t* read_u16_le(const char *filename, size_t *length) {
     struct stat st;
-    if (stat(filename, &st) != 0) {
-        perror("stat failed");
-        return NULL;
-    }
-
+    if (stat(filename, &st) != 0) die("stat");
     if (st.st_size % sizeof(uint16_t) != 0) {
         fprintf(stderr, "file size not multiple of 2 bytes\n");
-        return NULL;
+        exit(1);
     }
-
-    *length = st.st_size / sizeof(uint16_t);
-    uint16_t *data = malloc(*length * sizeof(uint16_t));
-    if (!data) {
-        perror("malloc failed");
-        return NULL;
-    }
+    *length = (size_t)(st.st_size / sizeof(uint16_t));
+    uint16_t *buf = (uint16_t*)malloc(*length * sizeof(uint16_t));
+    if (!buf) die("malloc");
 
     FILE *fp = fopen(filename, "rb");
-    if (!fp) {
-        perror("fopen failed");
-        free(data);
-        return NULL;
-    }
+    if (!fp) die("fopen");
 
-    size_t n = fread(data, sizeof(uint16_t), *length, fp);
-    if (n != *length) {
-        perror("fread failed");
-        free(data);
-        fclose(fp);
-        return NULL;
-    }
+    size_t n = fread(buf, sizeof(uint16_t), *length, fp);
+    if (n != *length) die("fread");
     fclose(fp);
 
-    return data;
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    for (size_t i = 0; i < *length; ++i) {
+        uint16_t v = buf[i];
+        buf[i] = (uint16_t)((v >> 8) | (v << 8));
+    }
+#endif
+    return buf;
 }
 
-uint16_t median(uint16_t a, uint16_t b, uint16_t c) {
-    if (a > b) { uint16_t t = a; a = b; b = t; }
-    if (b > c) { uint16_t t = b; b = c; c = t; }
-    if (a > b) { uint16_t t = a; a = b; b = t; }
-    return b;
-}
-
-uint16_t *DoFilter(const uint16_t *data, size_t length) {
-    uint16_t *out = malloc(length * sizeof(uint16_t));
-    if (!out) {
-        perror("malloc failed");
-        return NULL;
+static void write_u16_le(const char *filename, const uint16_t *data, size_t length) {
+    FILE *fp = fopen(filename, "wb");
+    if (!fp) die("fopen");
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    // write as little-endian regardless of host
+    for (size_t i = 0; i < length; ++i) {
+        uint16_t v = data[i];
+        uint16_t le = (uint16_t)((v >> 8) | (v << 8));
+        if (fwrite(&le, sizeof(uint16_t), 1, fp) != 1) die("fwrite");
     }
-
-    if (length == 0) return out;
-    if (length == 1) { out[0] = data[0]; return out; }
-
-    out[0] = data[0];
-    for (size_t i = 1; i + 1 < length; i++) {
-        out[i] = median(data[i-1], data[i], data[i+1]);
-    }
-    out[length-1] = data[length-1];
-    return out;
-}
-
-int writeData(const uint16_t *data, const char *outFilename, size_t length) {
-    FILE *fp = fopen(outFilename, "wb");
-    if (!fp) {
-        perror("fopen failed");
-        return -1;
-    }
-
-    if (fwrite(data, sizeof(uint16_t), length, fp) != length) {
-        perror("fwrite failed");
-        fclose(fp);
-        return -1;
-    }
-
+#else
+    if (fwrite(data, sizeof(uint16_t), length, fp) != length) die("fwrite");
+#endif
     fclose(fp);
-    return 0;
 }
 
-int main(int argc, char *argv[]) {
-    if (argc != 3) {
-        fprintf(stderr, "Usage: %s <input file> <output file>\n", argv[0]);
+// insertion sort is fast for small windows
+static void isort_u16(uint16_t *a, int n) {
+    for (int i = 1; i < n; ++i) {
+        uint16_t key = a[i];
+        int j = i - 1;
+        while (j >= 0 && a[j] > key) { a[j+1] = a[j]; --j; }
+        a[j+1] = key;
+    }
+}
+
+static void median_filter(const uint16_t *in, uint16_t *out, size_t len, int win) {
+    if (len == 0) return;
+    if (win < 1 || (win & 1) == 0) {
+        fprintf(stderr, "window size must be odd and >= 1\n");
+        exit(1);
+    }
+    if (win == 1) { memcpy(out, in, len * sizeof(uint16_t)); return; }
+
+    int r = win / 2;
+    uint16_t *tmp = (uint16_t*)malloc((size_t)win * sizeof(uint16_t));
+    if (!tmp) die("malloc");
+
+    // edge replicate: clamp indices to [0, len-1]
+    for (size_t i = 0; i < len; ++i) {
+        int k = 0;
+        for (int off = -r; off <= r; ++off) {
+            long idx = (long)i + off;
+            if (idx < 0) idx = 0;
+            if ((size_t)idx >= len) idx = (long)len - 1;
+            tmp[k++] = in[(size_t)idx];
+        }
+        isort_u16(tmp, win);
+        out[i] = tmp[r];
+    }
+    free(tmp);
+}
+
+int main(int argc, char **argv) {
+    if (argc < 3 || argc > 4) {
+        fprintf(stderr, "Usage: %s <input_u16_le.bin> <output_u16_le.bin> [window_odd>=3]\n", argv[0]);
         return 1;
     }
-
-    size_t len = 0;
-    uint16_t *data = get_data(argv[1], &len);
-    if (!data) return 1;
-
-    uint16_t *filtered = DoFilter(data, len);
-    if (!filtered) { free(data); return 1; }
-
-    if (writeData(filtered, argv[2], len) != 0) {
-        free(data);
-        free(filtered);
-        return 1;
+    int win = 3;
+    if (argc == 4) {
+        win = atoi(argv[3]);
+        if (win < 3 || (win & 1) == 0) {
+            fprintf(stderr, "window must be odd and >=3 (got %d)\n", win);
+            return 1;
+        }
     }
 
-    size_t preview = len < 10 ? len : 10;
-    printf("First %zu values:\n", preview);
-    for (size_t i = 0; i < preview; i++) {
-        printf("%" PRIu16 " ", filtered[i]);
-    }
-    printf("\n");
+    size_t n = 0;
+    uint16_t *x = read_u16_le(argv[1], &n);
+    uint16_t *y = (uint16_t*)malloc(n * sizeof(uint16_t));
+    if (!y) die("malloc");
 
-    free(data);
-    free(filtered);
+    median_filter(x, y, n, win);
+    write_u16_le(argv[2], y, n);
+
+    // tiny preview
+    size_t preview = n < 10 ? n : 10;
+    fprintf(stdout, "len=%zu, window=%d\nfirst %zu values: ", n, win, preview);
+    for (size_t i = 0; i < preview; ++i) fprintf(stdout, "%" PRIu16 " ", y[i]);
+    fprintf(stdout, "\n");
+
+    free(x);
+    free(y);
     return 0;
 }
