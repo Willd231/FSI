@@ -11,14 +11,16 @@ from datetime import datetime
 print("T1: after sys/os import", flush=True)
 
 # ---------- Config ----------
-file_path = "ADCout_clean.dat"
+file_path = "output_diff.dat"
 adc_channels = ['ADCA', 'ADCB', 'ADCC', 'ADCD']
 ninp = 4
 nchan = 512
-timestamp_size = 4                    # float32 seconds since epoch (little-endian)
-freq_block_size = 4 * nchan           # nchan float32
-autospec_block_size = 4 * nchan * ninp  # ninp * nchan float32
+timestamp_size = 4                    
+freq_block_size = 4 * nchan           
+autospec_block_size = 4 * nchan * ninp  
 record_size = timestamp_size + freq_block_size + autospec_block_size
+
+
 
 # ---------- File checks ----------
 if not os.path.exists(file_path):
@@ -32,6 +34,8 @@ if nspec == 0:
     sys.exit(1)
 
 print(f"There were {nspec} Spectra recorded.", flush=True)
+
+
 
 # ---------- Load data ----------
 Autospec = np.zeros((nspec, ninp, nchan), dtype=np.float32)
@@ -101,7 +105,7 @@ for ch in range(ninp):
     n_ticks = min(6, len(times_plot))
     ticks = np.linspace(0, len(times_plot) - 1, num=n_ticks, dtype=int) if len(times_plot) else []
     ax1[ch].set_xticks(ticks)
-    ax1[ch].set_xticklabels([times_plot[i] for i in ticks], rotation=30, ha="right")
+    ax1[ch].set_xticklabels([times_plot[i] for i in ticks], ha="right")
     ax1[ch].set_xlabel("Time")
     cb = fig1.colorbar(cax, ax=ax1[ch])
     cb.ax.set_ylabel("dB")
@@ -137,16 +141,4 @@ def on_click(event):
 
 fig1.canvas.mpl_connect('close_event', on_close)
 fig1.canvas.mpl_connect('button_press_event', on_click)
-
-backend = matplotlib.get_backend()
-print("Backend:", backend, flush=True)
-
-# Treat only true non-GUI backends as headless
-NON_GUI = {"agg", "pdf", "ps", "svg", "cairo", "template", "pgf"}
-if backend.lower() in NON_GUI:
-    print("Headless backend detected — saving to spectrogram.png", flush=True)
-    fig1.savefig("spectrogram.png", dpi=150)
-    sys.exit(0)
-
-# GUI path: block so the window stays up, clicks work
 plt.show()
